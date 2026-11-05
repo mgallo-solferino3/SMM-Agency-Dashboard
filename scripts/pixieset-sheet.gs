@@ -1,14 +1,10 @@
-/**
- * Agency Dashboard SMM – legge il foglio delle gallerie Pixieset e lo restituisce all'app in JSON.
- *
- * Il foglio resta privato: lo script gira con i permessi di chi lo pubblica e risponde solo
- * a chi conosce la chiave. Per ogni cella restituisce il testo visibile e, se c'è, il link
- * collegato al testo (anche quando la cella mostra un titolo invece dell'URL).
- *
- * Installazione (dal foglio): Estensioni → Apps Script → incolla questo file → imposta KEY →
- * Distribuisci → Nuova distribuzione → tipo "App web" → Esegui come: Me →
- * Chi ha accesso: Chiunque → Distribuisci → copia l'URL che finisce con /exec.
- */
+// Agency Dashboard SMM: legge il foglio delle gallerie Pixieset e lo restituisce all'app in JSON.
+// Il foglio resta privato: lo script gira con i permessi di chi lo pubblica e risponde solo a chi conosce la chiave.
+// Per ogni cella restituisce il testo visibile e, se c'è, il link collegato al testo.
+//
+// Installazione (dal foglio): Estensioni → Apps Script → incolla questo file → imposta KEY e SHEET_GID →
+// salva → Esegui il deployment → Nuovo deployment → App web → Esegui come: Me → Chi ha accesso: Chiunque.
+// Niente commenti a blocchi né barre rovesciate: si perdono facilmente nel copia-incolla.
 const KEY = 'INCOLLA_QUI_LA_CHIAVE'; // la stessa chiave va inserita nell'app
 const SHEET_GID = null; // id della scheda (il numero dopo "gid=" nel link), null = la prima scheda
 
@@ -34,8 +30,12 @@ function linkOf(richText, formula) {
     const run = richText.getRuns().find((x) => x.getLinkUrl());
     if (run) return run.getLinkUrl();
   }
-  const m = /HYPERLINK\(\s*"([^"]+)"/i.exec(formula || '');
-  return m ? m[1] : null;
+  const f = String(formula || '');
+  const marker = 'HYPERLINK("';
+  const start = f.toUpperCase().indexOf(marker);
+  if (start < 0) return null;
+  const end = f.indexOf('"', start + marker.length);
+  return end > start + marker.length ? f.slice(start + marker.length, end) : null;
 }
 
 function json(obj) {
