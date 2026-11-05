@@ -304,20 +304,20 @@ function appSelect(selectedPath, inputs, iconSetters) {
 
 // --- Editor di testo con stili (grassetto, corsivo, elenchi…)
 const RTE_COMMANDS = [
-  ['bold', 'B', 'Grassetto'],
-  ['italic', 'I', 'Corsivo'],
-  ['underline', 'U', 'Sottolineato'],
-  ['strikeThrough', 'S', 'Barrato'],
-  ['insertUnorderedList', '•', 'Elenco'],
-  ['insertOrderedList', '1.', 'Elenco numerato'],
+  ['bold', 'bold', 'Grassetto'],
+  ['italic', 'italic', 'Corsivo'],
+  ['underline', 'underline', 'Sottolineato'],
+  ['strikeThrough', 'strikethrough', 'Barrato'],
+  ['insertUnorderedList', 'list-ul', 'Elenco'],
+  ['insertOrderedList', 'list-ol', 'Elenco numerato'],
 ];
 function richTextInput(value) {
   const content = h('div', { class: 'rte-content', contenteditable: 'true' });
   content.innerHTML = value || '';
-  const toolbar = h('div', { class: 'rte-toolbar' }, RTE_COMMANDS.map(([cmd, label, title]) =>
+  const toolbar = h('div', { class: 'rte-toolbar' }, RTE_COMMANDS.map(([cmd, iconName, title]) =>
     h('button', { type: 'button', title,
       onmousedown: (e) => e.preventDefault(),
-      onclick: () => { document.execCommand(cmd); content.focus(); } }, label)));
+      onclick: () => { document.execCommand(cmd); content.focus(); } }, icon(iconName))));
   return h('div', { class: 'rte' }, toolbar, content);
 }
 
@@ -360,34 +360,34 @@ function save() {
 // ---------- Pages ----------
 // Sezioni comuni a tutti i profili
 const COMMON_PAGES = [
-  { id: 'home', label: 'Home', icon: '⌂' },
-  { id: 'tools', label: 'Strumenti', icon: '⚒' },
-  { id: 'idee', label: 'Idee', icon: '✦' },
-  { id: 'todos', label: 'To-do', icon: '✓' },
-  { id: 'notes', label: 'Note', icon: '✎' },
-  { id: 'appunti', label: 'Appunti', icon: '🗒' },
-  { id: 'snippets', label: 'Snippet', icon: '❝' },
+  { id: 'home', label: 'Home', icon: 'house' },
+  { id: 'tools', label: 'Strumenti', icon: 'screwdriver-wrench' },
+  { id: 'idee', label: 'Idee', icon: 'lightbulb' },
+  { id: 'todos', label: 'To-do', icon: 'square-check' },
+  { id: 'notes', label: 'Note', icon: 'pen-to-square' },
+  { id: 'appunti', label: 'Appunti', icon: 'note-sticky' },
+  { id: 'snippets', label: 'Snippet', icon: 'quote-left' },
 ];
 // Sezioni aggiunte dal profilo scelto nelle impostazioni
 const PROFILE_PAGES = {
-  utm: { label: 'Generatore UTM', icon: '⛓' },
-  calendario: { label: 'Calendario editoriale', icon: '▤' },
-  palette: { label: 'Palette colori', icon: '◐' },
-  font: { label: 'Font', icon: 'Aa' },
-  shooting: { label: 'Shooting', icon: '◉' },
-  lead: { label: 'Lead', icon: '☏' },
-  preventivi: { label: 'Preventivi', icon: '€' },
-  progetti: { label: 'Progetti', icon: '▦' },
-  scadenze: { label: 'Scadenze', icon: '⏱' },
+  utm: { label: 'Generatore UTM', icon: 'link' },
+  calendario: { label: 'Calendario editoriale', icon: 'calendar-days' },
+  palette: { label: 'Palette colori', icon: 'palette' },
+  font: { label: 'Font', icon: 'font' },
+  shooting: { label: 'Shooting', icon: 'camera' },
+  lead: { label: 'Lead', icon: 'handshake' },
+  preventivi: { label: 'Preventivi', icon: 'file-invoice' },
+  progetti: { label: 'Progetti', icon: 'folder-open' },
+  scadenze: { label: 'Scadenze', icon: 'hourglass-half' },
 };
 const PROFILES = [
-  { id: 'smm', label: 'Social Media Manager', icon: '📱', pages: ['utm', 'calendario'] },
-  { id: 'grafico', label: 'Grafico', icon: '🎨', pages: ['palette', 'font'] },
-  { id: 'fotografo', label: 'Fotografo', icon: '📷', pages: ['shooting'] },
-  { id: 'commerciale', label: 'Commerciale', icon: '💼', pages: ['lead', 'preventivi'] },
-  { id: 'pm', label: 'Project Manager', icon: '📋', pages: ['progetti', 'scadenze'] },
+  { id: 'smm', label: 'Social Media Manager', icon: 'hashtag', pages: ['utm', 'calendario'] },
+  { id: 'grafico', label: 'Grafico', icon: 'pen-nib', pages: ['palette', 'font'] },
+  { id: 'fotografo', label: 'Fotografo', icon: 'camera-retro', pages: ['shooting'] },
+  { id: 'commerciale', label: 'Commerciale', icon: 'briefcase', pages: ['lead', 'preventivi'] },
+  { id: 'pm', label: 'Project Manager', icon: 'list-check', pages: ['progetti', 'scadenze'] },
 ];
-const SETTINGS_PAGE = { id: 'settings', label: 'Impostazioni', icon: '⚙' };
+const SETTINGS_PAGE = { id: 'settings', label: 'Impostazioni', icon: 'gear' };
 const EDITABLE = new Set(['tools', 'idee', 'snippets', 'appunti', 'palette']);
 
 const currentProfile = () => PROFILES.find((p) => p.id === state.settings.profile) || PROFILES[0];
@@ -401,7 +401,7 @@ const visiblePages = () => [...COMMON_PAGES, ...profilePages(), ...extraPages(),
 
 function navItem(p, extraClass = '') {
   return h('button', { class: `nav-item${p.id === page ? ' active' : ''}${extraClass}`, onclick: () => go(p.id) },
-    h('span', { class: 'nav-icon' }, p.icon), p.label);
+    h('span', { class: 'nav-icon' }, icon(p.icon)), p.label);
 }
 
 function renderNav() {
@@ -475,8 +475,8 @@ function linkTile(item, { sub, onEdit, onDelete } = {}) {
     badge,
     h('div', { class: 'meta' }, h('div', { class: 'name' }, item.label), h('div', { class: 'sub' }, sub || hostOf(item.url))),
     (onEdit || onDelete) && h('div', { class: 'tile-actions' },
-      onEdit && h('button', { class: 'icon', title: 'Modifica', onclick: onEdit }, '✎'),
-      onDelete && h('button', { class: 'icon', title: 'Elimina', onclick: onDelete }, '✕'))
+      onEdit && h('button', { class: 'icon', title: 'Modifica', onclick: onEdit }, icon('pen')),
+      onDelete && h('button', { class: 'icon', title: 'Elimina', onclick: onDelete }, icon('xmark')))
   );
   return tile;
 }
@@ -494,7 +494,7 @@ function searchAll(q) {
 function renderHome(view) {
   const input = h('input', { type: 'text', id: 'search', placeholder: 'Cerca link e strumenti…', value: query,
     oninput: (e) => { query = e.target.value; renderHomeBody(); } });
-  view.append(h('div', { class: 'search' }, input, h('kbd', null, MOD_KEY)), h('div', { id: 'home-body' }));
+  view.append(h('div', { class: 'search' }, icon('magnifying-glass', 'search-icon'), input, h('kbd', null, MOD_KEY)), h('div', { id: 'home-body' }));
   renderHomeBody();
 }
 
@@ -528,7 +528,7 @@ function renderHomeBody() {
   body.append(h('div', { class: 'section-title' }, 'To-do aperti'));
   body.append(open.length
     ? h('div', { class: 'card' }, open.map((t) => todoRow(t, renderHomeBody)))
-    : h('div', { class: 'empty' }, 'Niente in sospeso. 🎉'));
+    : h('div', { class: 'empty' }, 'Niente in sospeso.'));
 }
 
 function linkFields(l = {}) {
@@ -656,8 +656,8 @@ function siteCard(s) {
       h('div', { class: 'site-host' }, hostOf(s.url))),
     h('div', { class: 'site-actions' },
       h('button', { class: 'ghost small', disabled: capturing, onclick: () => captureSite(s) }, s.thumb ? 'Aggiorna' : 'Cattura'),
-      editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => editSite(s) }, '✎'),
-      editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => deleteSite(s) }, '✕')));
+      editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => editSite(s) }, icon('pen')),
+      editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => deleteSite(s) }, icon('xmark'))));
 }
 function renderSites(view) {
   const missing = state.sites.filter((s) => !s.thumb).length;
@@ -673,7 +673,7 @@ function todoRow(t, rerender) {
   return h('div', { class: 'todo' + (t.done ? ' done' : '') },
     h('input', { type: 'checkbox', checked: t.done, onchange: (e) => { t.done = e.target.checked; save(); rerender(); } }),
     h('span', { class: 't' }, t.text),
-    h('button', { class: 'icon', title: 'Elimina', onclick: () => { state.todos = state.todos.filter((x) => x.id !== t.id); save(); rerender(); } }, '✕'));
+    h('button', { class: 'icon', title: 'Elimina', onclick: () => { state.todos = state.todos.filter((x) => x.id !== t.id); save(); rerender(); } }, icon('xmark')));
 }
 function renderTodos(view) {
   const input = h('input', { type: 'text', placeholder: 'Nuova attività… (Invio per aggiungere)',
@@ -758,10 +758,10 @@ function renderAppunti(view) {
     view.append(h('div', { class: 'card appunto' },
       h('div', { class: 'card-head' },
         h('div', { style: 'flex:1; min-width:0' }, h('h3', null, a.title), h('div', { class: 'sub' }, formatDate(a.date))),
-        editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => { appuntoFormFor = a.id; render(); } }, '✎'),
+        editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => { appuntoFormFor = a.id; render(); } }, icon('pen')),
         editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => confirmBox(`Eliminare "${a.title}"?`, () => {
           state.appunti = state.appunti.filter((x) => x.id !== a.id); save(); render();
-        }) }, '✕')),
+        }) }, icon('xmark'))),
       body));
   }
 }
@@ -828,10 +828,10 @@ function renderSnippets(view) {
         h('h3', null, s.title),
         h('button', { class: 'ghost small', onclick: () => copy(s.text) }, 'Copia'),
         editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => openForm({ title: 'Modifica snippet', fields: snippetFields(s),
-          onSubmit: (v) => { if (!v.title || !v.text) return false; s.title = v.title; s.text = v.text; save(); render(); } }) }, '✎'),
+          onSubmit: (v) => { if (!v.title || !v.text) return false; s.title = v.title; s.text = v.text; save(); render(); } }) }, icon('pen')),
         editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => confirmBox(`Eliminare "${s.title}"?`, () => {
           state.snippets = state.snippets.filter((x) => x.id !== s.id); save(); render();
-        }) }, '✕')),
+        }) }, icon('xmark'))),
       h('pre', null, s.text)));
   }
 }
@@ -1025,8 +1025,8 @@ function recordRow(key, r, { onOpen, showPage } = {}) {
     url && h('button', { class: 'ghost small', onclick: () => window.api.openExternal(url) }, 'Apri'),
     status && h('button', { class: `status tone-${status.tone}`, title: 'Clic per passare allo stato successivo',
       onclick: () => cycleStatus(type, r) }, status.label),
-    !onOpen && editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => editRecord(key, r) }, '✎'),
-    !onOpen && editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => deleteRecord(key, r) }, '✕'));
+    !onOpen && editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => editRecord(key, r) }, icon('pen')),
+    !onOpen && editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => deleteRecord(key, r) }, icon('xmark')));
 }
 
 const byDate = (field) => (a, b) => (a[field] || '9999').localeCompare(b[field] || '9999');
@@ -1114,8 +1114,8 @@ function renderPalette(view) {
       h('div', { style: 'flex:1; min-width:0' }, h('div', { class: 'record-title' }, p.name),
         p.client && h('div', { class: 'record-meta' }, p.client)),
       h('button', { class: 'ghost small', onclick: () => copy(p.colors.join(', '), 'Palette copiata') }, 'Copia tutti'),
-      editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => editRecord('palette', p) }, '✎'),
-      editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => deleteRecord('palette', p) }, '✕'))))));
+      editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => editRecord('palette', p) }, icon('pen')),
+      editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => deleteRecord('palette', p) }, icon('xmark')))))));
 }
 
 // ---------- Aspetto ----------
@@ -1221,7 +1221,7 @@ function renderSettings(view) {
     h('div', { class: 'section-title' }, 'Profilo'),
     h('div', { class: 'profile-grid' }, PROFILES.map((p) =>
       h('button', { class: 'profile-card' + (p.id === s.profile ? ' active' : ''), onclick: () => set({ profile: p.id }) },
-        h('div', { class: 'profile-icon' }, p.icon),
+        h('div', { class: 'profile-icon' }, icon(p.icon)),
         h('div', { class: 'profile-name' }, p.label),
         h('div', { class: 'profile-pages' }, p.pages.map((id) => PROFILE_PAGES[id].label).join(' · '))))),
     h('div', { class: 'hint' }, `Le sezioni ${COMMON_PAGES.map((p) => p.label).join(', ')} ci sono per tutti i profili. `
@@ -1234,13 +1234,13 @@ function renderSettings(view) {
     h('div', { class: 'tool-groups' }, PROFILES.map((p) => {
       const own = p.id === s.profile;
       return h('div', { class: 'card tool-group' + (own ? ' own' : '') },
-        h('div', { class: 'tool-group-title' }, h('span', null, p.icon), p.label, own && h('span', { class: 'tool-group-tag' }, 'Il tuo profilo')),
+        h('div', { class: 'tool-group-title' }, icon(p.icon), p.label, own && h('span', { class: 'tool-group-tag' }, 'Il tuo profilo')),
         p.pages.map((id) => {
           const included = currentProfile().pages.includes(id);
           return h('label', { class: 'tool-toggle' + (included ? ' included' : '') },
             h('input', { type: 'checkbox', checked: included || s.extraPages.includes(id), disabled: included,
               onchange: (e) => toggleExtra(id, e.target.checked) }),
-            h('span', { class: 'nav-icon' }, PROFILE_PAGES[id].icon),
+            h('span', { class: 'nav-icon' }, icon(PROFILE_PAGES[id].icon)),
             h('span', null, PROFILE_PAGES[id].label),
             included && !own && h('span', { class: 'tool-note' }, 'già nel tuo profilo'));
         }));

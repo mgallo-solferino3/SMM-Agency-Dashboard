@@ -98,3 +98,4 @@ Dal menu laterale puoi esportare e importare un backup JSON.
 - `main.js` – processo principale (finestra, salvataggio dati, apertura link)
 - `preload.js` – ponte sicuro verso l'interfaccia
 - `renderer/` – interfaccia (HTML, CSS, JS senza dipendenze)
+- `renderer/icons.js` – icone [Font Awesome Free](https://fontawesome.com) 6.7.2 in SVG (licenza icone [CC BY 4.0](https://fontawesome.com/license/free)), incluse nell'app: funzionano anche offline
