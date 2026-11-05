@@ -12,13 +12,27 @@ npm install
 npm start
 ```
 
+## Installare sul Mac (colleghi)
+
+Apri il Terminale, incolla e premi Invio:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mgallo-solferino3/SMM-Agency-Dashboard/main/scripts/install-mac.sh | bash
+```
+
+Scarica l'ultima versione da GitHub con `curl` (senza la "quarantena" del browser, quindi macOS non blocca l'app), chiude l'app se è aperta, la installa in Applicazioni e la apre. Funziona anche per aggiornare. I dati restano quelli di prima.
+
+Se invece si scarica il `.dmg` dal browser, macOS può bloccare l'app (l'icona saltella nel Dock senza aprirsi, "Apri comunque" non funziona) perché non è firmata con un Apple Developer ID. Si sblocca con `xattr -cr "/Applications/Agency Dashboard SMM.app"` nel Terminale.
+
+Dalla 1.2.2 gli aggiornamenti successivi si installano dall'app con **Installa e riavvia**.
+
 ## Creare l'app per il Dock (.dmg)
 
 ```bash
 npm run dist
 ```
 
-Il file `.dmg` compare nella cartella `dist/`. L'app non è firmata: la prima volta apri con tasto destro → Apri.
+Il file `.dmg` compare nella cartella `dist/`.
 
 ## Creare l'installer per Windows (.exe)
 

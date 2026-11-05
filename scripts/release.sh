@@ -55,7 +55,11 @@ cat > "$ASSETS/notes.md" <<EOF
 - **Windows** (x64): \`Agency-Dashboard-SMM-Setup-$VERSION-windows.exe\`
 
 ## Installazione
-- **macOS**: l'app non è firmata con Apple Developer ID. Al primo avvio, se macOS la blocca, vai in *Impostazioni di Sistema → Privacy e sicurezza* e clicca **Apri comunque**.
+- **macOS** (consigliato): apri il Terminale, incolla questo comando e premi Invio. Scarica e installa l'ultima versione senza il blocco di macOS:
+  \`\`\`
+  curl -fsSL https://raw.githubusercontent.com/mgallo-solferino3/SMM-Agency-Dashboard/main/scripts/install-mac.sh | bash
+  \`\`\`
+  Se scarichi il \`.dmg\` dal browser, macOS può bloccare l'app (l'icona saltella nel Dock senza aprirsi) perché non è firmata con Apple Developer ID. In quel caso, dopo averla trascinata in Applicazioni, esegui nel Terminale: \`xattr -cr "/Applications/Agency Dashboard SMM.app"\`
 - **Windows**: l'installer non è firmato. Se compare SmartScreen, clicca **Ulteriori informazioni → Esegui comunque**.
 
 EOF
