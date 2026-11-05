@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, screen, nativeImage, nativeTheme, net } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, screen, nativeImage, nativeTheme, net, Notification, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL, fileURLToPath } = require('url');
@@ -98,7 +98,10 @@ function createWindow() {
   win.on('minimize', showWidget);
   win.on('restore', hideWidget);
   win.on('show', hideWidget);
-  win.on('focus', hideWidget);
+  win.on('focus', () => {
+    hideWidget();
+    checkForUpdateIfStale();
+  });
   win.on('closed', () => {
     // Distrugge il widget: altrimenti conterebbe come finestra aperta e 'activate' non ricreerebbe la principale
     if (widgetWin && !widgetWin.isDestroyed()) widgetWin.destroy();
@@ -468,24 +471,67 @@ function isNewerVersion(candidate, current) {
   return false;
 }
 
-ipcMain.handle('update:check', async () => {
+// Controllo frequente per avvisare appena esce una release. Le richieste usano l'ETag:
+// se non è cambiato niente GitHub risponde 304, che non conta nel limite di 60 richieste/ora per IP.
+const UPDATE_POLL_MS = 5 * 60 * 1000;
+const UPDATE_FOCUS_MIN_GAP_MS = 60 * 1000;
+let releaseEtag = null;
+let cachedRelease = null;
+let latestUpdate = null;
+let lastUpdateCheck = 0;
+let notifiedVersion = null;
+
+async function fetchLatestRelease() {
+  const headers = { Accept: 'application/vnd.github+json' };
+  if (releaseEtag) headers['If-None-Match'] = releaseEtag;
+  const res = await net.fetch(LATEST_RELEASE_API, { headers, cache: 'no-store' });
+  if (res.status === 304 || !res.ok) return cachedRelease;
+  releaseEtag = res.headers.get('etag');
+  cachedRelease = await res.json();
+  return cachedRelease;
+}
+
+function updateFromRelease(release) {
+  const version = String(release?.tag_name || '').replace(/^v/, '');
+  if (!/^\d+\.\d+\.\d+$/.test(version) || !isNewerVersion(version, app.getVersion())) return null;
+  const ext = IS_WIN ? '.exe' : '.dmg';
+  const asset = (release.assets || []).find((a) => a.name.endsWith(ext));
+  if (!asset) return null; // release senza installer per questa piattaforma (es. ancora in caricamento)
+  return { version, downloadUrl: asset.browser_download_url, notesUrl: release.html_url };
+}
+
+function notifyUpdate(update) {
+  if (notifiedVersion === update.version || !Notification.isSupported()) return;
+  notifiedVersion = update.version;
+  const n = new Notification({
+    title: `Agency Dashboard SMM ${update.version} disponibile`,
+    body: 'Clicca per aprire l\'app e scaricare la nuova versione.',
+    icon: customIcon ? nativeImage.createFromDataURL(customIcon) : ICON_PATH,
+  });
+  n.on('click', () => {
+    hideWidget();
+    restoreMainWindow();
+  });
+  n.show();
+}
+
+async function checkForUpdate() {
+  lastUpdateCheck = Date.now();
   try {
-    const res = await net.fetch(LATEST_RELEASE_API, { headers: { Accept: 'application/vnd.github+json' } });
-    if (!res.ok) return null;
-    const release = await res.json();
-    const version = String(release.tag_name || '').replace(/^v/, '');
-    if (!/^\d+\.\d+\.\d+$/.test(version) || !isNewerVersion(version, app.getVersion())) return null;
-    const ext = IS_WIN ? '.exe' : '.dmg';
-    const asset = (release.assets || []).find((a) => a.name.endsWith(ext));
-    return {
-      version,
-      downloadUrl: asset ? asset.browser_download_url : release.html_url,
-      notesUrl: release.html_url,
-    };
+    latestUpdate = updateFromRelease(await fetchLatestRelease());
   } catch (_) {
-    return null; // offline o GitHub non raggiungibile: si riprova al prossimo controllo
+    return latestUpdate; // offline o GitHub non raggiungibile: si riprova al prossimo controllo
   }
-});
+  if (win && !win.isDestroyed()) win.webContents.send('update:available', latestUpdate);
+  if (latestUpdate) notifyUpdate(latestUpdate);
+  return latestUpdate;
+}
+
+function checkForUpdateIfStale() {
+  if (Date.now() - lastUpdateCheck > UPDATE_FOCUS_MIN_GAP_MS) checkForUpdate();
+}
+
+ipcMain.handle('update:check', () => checkForUpdate());
 
 app.whenReady().then(() => {
   const settings = readSettings();
@@ -498,6 +544,9 @@ app.whenReady().then(() => {
     });
   }
   createWindow();
+  // Il controllo gira nel processo principale: funziona anche con la finestra chiusa (Mac) o ridotta a icona
+  setInterval(checkForUpdate, UPDATE_POLL_MS);
+  powerMonitor.on('resume', checkForUpdateIfStale);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   listApps: () => ipcRenderer.invoke('apps:list'),
   appIcon: (appPath) => ipcRenderer.invoke('apps:icon', appPath),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
+  onUpdate: (cb) => ipcRenderer.on('update:available', (_e, update) => cb(update)),
   setAppearance: (appearance) => ipcRenderer.invoke('appearance:set', appearance),
   setIcon: (dataUrl) => ipcRenderer.invoke('icon:set', dataUrl),
 });

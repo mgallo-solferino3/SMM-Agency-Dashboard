@@ -40,7 +40,7 @@ npm run release -- major   # 1.0.0 → 2.0.0
 
 Lo script aumenta la versione, crea `.dmg` ed `.exe`, aggiorna l'app in `/Applications`, fa commit, tag e push su GitHub e pubblica una Release con i due installer. Serve [GitHub CLI](https://cli.github.com) autenticata (`gh auth login`) e il branch `main`.
 
-L'app controlla da sola (all'avvio e ogni 6 ore) se su GitHub c'è una versione più recente: in quel caso nella barra laterale compare il riquadro **Nuova versione** con il pulsante per scaricare l'installer giusto per Mac o Windows.
+L'app controlla da sola se su GitHub c'è una versione più recente: all'avvio, ogni 5 minuti, quando si torna sulla finestra e al risveglio del computer. Quando ne trova una mostra una notifica di sistema e, nella barra laterale, il riquadro **Nuova versione** con il pulsante per scaricare l'installer giusto per Mac o Windows. Le richieste a GitHub sono condizionate (ETag), quindi i controlli senza novità non consumano il limite di richieste.
 
 ## Cosa contiene
 

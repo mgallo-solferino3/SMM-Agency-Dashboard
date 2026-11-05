@@ -1264,11 +1264,9 @@ function renderSettings(view) {
 }
 
 // ---------- Aggiornamenti ----------
-const UPDATE_CHECK_EVERY = 6 * 60 * 60 * 1000;
-
-async function checkUpdate() {
+// I controlli periodici li fa il processo principale, che avvisa con 'update:available'
+function showUpdate(u) {
   const box = $('#update');
-  const u = await window.api.checkUpdate();
   if (!u) { box.hidden = true; return; }
   box.replaceChildren(
     h('div', { class: 'update-title' }, `Nuova versione ${u.version}`),
@@ -1338,7 +1336,7 @@ async function boot() {
     }
   });
   render();
-  checkUpdate();
-  setInterval(checkUpdate, UPDATE_CHECK_EVERY);
+  window.api.onUpdate(showUpdate);
+  window.api.checkUpdate().then(showUpdate);
 }
 boot();
