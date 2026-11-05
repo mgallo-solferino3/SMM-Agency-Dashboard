@@ -1119,16 +1119,14 @@ function renderPalette(view) {
       editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => deleteRecord('palette', p) }, icon('xmark')))))));
 }
 
-// --- PIXIESET (Fotografo): gallerie con copertina, anche da un foglio Google
+// --- PIXIESET (Fotografo): elenco delle gallerie, anche dalle schede di un foglio Google (una per fotografo)
 const SHEET_SYNC_EVERY = 10 * 60 * 1000;
-const coveringIds = new Set();
-let coverQueueRunning = false;
+const MANUAL_TAB = 'Aggiunte a mano';
 let sheetSyncing = false;
 let lastSheetAttempt = 0; // anche i tentativi falliti: niente nuovi tentativi automatici a ogni ridisegno
-const coverFailedIds = new Set(); // copertine non trovate in questa sessione: si riprova solo a mano
+let pixiesetQuery = '';
 
-const isPixiesetVisible = () => page === 'pixieset';
-const renderIfPixiesetVisible = () => { if (isPixiesetVisible()) render(); };
+const renderIfPixiesetVisible = () => { if (page === 'pixieset') render(); };
 
 function parseCsv(text) {
   const rows = [];
@@ -1151,8 +1149,8 @@ function parseCsv(text) {
 }
 
 // Ogni cella arriva come { v: testo visibile, u: link collegato al testo } (dallo script Google; dal CSV u è sempre null).
-// Colonne riconosciute dall'intestazione: Cliente/Nome, Link, Password, Data, Note, Copertina.
-// Senza intestazione ogni riga si legge da sola: il primo link è la galleria, il primo testo il nome, un secondo link la copertina.
+// Colonne riconosciute dall'intestazione: Cliente/Nome, Link, Password, Data, Note.
+// Senza intestazione ogni riga si legge da sola: il primo link è la galleria, il primo testo il nome.
 const isHttpUrl = (v) => /^https?:\/\/\S+$/i.test((v || '').trim());
 const DATE_RE = /^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$/;
 const GENERIC_LINK_TEXT = /^(pixieset|link|galleria|foto)$/i;
@@ -1166,7 +1164,7 @@ function galleriesFromSheet(rows) {
   const iUrl = col(/link|url|indirizzo/);
   const idx = iUrl < 0 ? null : {
     url: iUrl, name: col(/cliente|nome|name|titolo|title|galleria/), password: col(/password|pass|pwd/),
-    date: col(/^data|date/), note: col(/note|descrizione/), cover: col(/copertina|cover|immagine|image/),
+    date: col(/^data|date/), note: col(/note|descrizione/),
   };
   const list = [];
   let skipped = 0;
@@ -1183,7 +1181,6 @@ function galleriesFromSheet(rows) {
         // testo collegato al posto dell'URL, es. "Sequenze by La Ville"
         title: linkText && !isHttpUrl(linkText) && !GENERIC_LINK_TEXT.test(linkText) ? linkText : '',
         password: cellText(cells[idx.password]), date: cellText(cells[idx.date]), note: cellText(cells[idx.note]),
-        cover: cellLink(cells[idx.cover]),
       };
       // riga scritta una colonna più a sinistra: la data è finita nella colonna della password
       if (DATE_RE.test(g.password) && !DATE_RE.test(g.date)) {
@@ -1193,14 +1190,17 @@ function galleriesFromSheet(rows) {
       if (g.date && !DATE_RE.test(g.date) && !g.note) { g.note = g.date; g.date = ''; }
     } else {
       const links = cells.map(cellLink).filter(Boolean);
-      g = { url: links[0] || '', cover: links[1] || '', name: cells.map(cellText).find((v) => v && !isHttpUrl(v)) || '' };
+      g = { url: links[0] || '', name: cells.map(cellText).find((v) => v && !isHttpUrl(v)) || '' };
     }
     if (!g.url) { skipped++; continue; }
     list.push({ name: g.name || '', title: g.note || g.title || '', date: DATE_RE.test(g.date || '') ? g.date : '',
-      password: g.password || '', url: g.url, cover: g.cover || '' });
+      password: g.password || '', url: g.url });
   }
   return { list, skipped };
 }
+
+// Nota uguale al nome della scheda (es. "Foto Matteo" nella scheda "Foto Matteo 2026"): non dice niente di nuovo
+const redundantNote = (note, tab) => !!note && tab.toLowerCase().startsWith(note.toLowerCase());
 
 async function syncPixiesetSheet({ quiet = false } = {}) {
   const cfg = state.pixiesetSheet;
@@ -1216,62 +1216,29 @@ async function syncPixiesetSheet({ quiet = false } = {}) {
     if (!quiet) toast(res.error);
     return;
   }
-  const rows = res.rows || parseCsv(res.csv).map((r) => r.map((v) => ({ v, u: null })));
-  const { list, skipped } = galleriesFromSheet(rows);
-  const previous = new Map(state.pixieset.filter((g) => g.source === 'sheet').map((g) => [g.url, g]));
-  const fromSheet = list.map((r) => {
-    const prev = previous.get(r.url);
-    return {
-      id: prev?.id || uid(), source: 'sheet', url: r.url,
-      name: r.name || deriveLabel(r.url), title: r.title || prev?.pageTitle || '', pageTitle: prev?.pageTitle || '',
-      date: r.date, password: r.password,
-      cover: r.cover || (prev?.coverFromSheet ? '' : prev?.cover) || '',
-      coverFromSheet: !!r.cover,
-    };
-  });
+  const sheets = res.sheets || [{ name: 'Foglio', rows: parseCsv(res.csv).map((r) => r.map((v) => ({ v, u: null }))) }];
+  let skipped = 0;
+  const fromSheet = [];
+  for (const sh of sheets) {
+    const parsed = galleriesFromSheet(sh.rows);
+    skipped += parsed.skipped;
+    for (const g of parsed.list) {
+      fromSheet.push({ id: uid(), source: 'sheet', tab: sh.name, ...g, title: redundantNote(g.title, sh.name) ? '' : g.title });
+    }
+  }
   state.pixieset = [...state.pixieset.filter((g) => g.source !== 'sheet'), ...fromSheet];
   Object.assign(cfg, { syncedAt: Date.now(), error: '', skipped });
   save(); renderIfPixiesetVisible();
   if (!quiet) toast(`Foglio sincronizzato: ${fromSheet.length} gallerie`);
-  fetchMissingCovers();
-}
-
-async function fetchCover(g) {
-  coveringIds.add(g.id);
-  renderIfPixiesetVisible();
-  const res = await window.api.pixiesetCover(g.id, normalizeUrl(g.url));
-  coveringIds.delete(g.id);
-  if (res && res.url) {
-    coverFailedIds.delete(g.id);
-    g.cover = res.url;
-    g.coverFromSheet = false;
-    if (g.nameAuto && res.title) { g.name = res.title; g.nameAuto = false; }
-    // gallerie del foglio senza nota né testo collegato: si mostra il titolo della pagina Pixieset
-    if (g.source === 'sheet' && res.title && !g.title) { g.title = g.pageTitle = res.title; }
-    save();
-  } else {
-    coverFailedIds.add(g.id);
-    toast(`Copertina "${g.name}" non trovata`);
-  }
-  renderIfPixiesetVisible();
-}
-
-async function fetchMissingCovers() {
-  if (coverQueueRunning) return;
-  coverQueueRunning = true;
-  for (const g of state.pixieset.filter((x) => !x.cover && !coverFailedIds.has(x.id))) {
-    if (!isPixiesetVisible()) break;
-    if (state.pixieset.includes(g)) await fetchCover(g);
-  }
-  coverQueueRunning = false;
 }
 
 function galleryFields(g = {}) {
   return [
-    { name: 'name', label: 'Nome', value: g.nameAuto ? '' : g.name || '', placeholder: 'Es. Matrimonio Rossi (se vuoto lo prendo da Pixieset)' },
+    { name: 'name', label: 'Cliente', value: g.name || '', placeholder: 'Es. La Ville' },
+    { name: 'title', label: 'Galleria (facoltativo)', value: g.title || '', placeholder: 'Es. Shooting autunno' },
     { name: 'url', label: 'Link della galleria', value: g.url || '', placeholder: 'https://studio.pixieset.com/galleria/' },
-    { name: 'cover', label: 'Copertina (URL immagine, facoltativo)', value: /^https?:/.test(g.cover || '') ? g.cover : '',
-      placeholder: 'Se vuoto la ricavo dalla galleria' },
+    { name: 'password', label: 'Password (facoltativa)', value: g.password || '' },
+    { name: 'date', label: 'Data (facoltativa)', value: g.date || '', placeholder: 'gg/mm/aa' },
   ];
 }
 
@@ -1281,13 +1248,10 @@ function editGallery(g) {
       if (!v.url) return false;
       const url = normalizeUrl(v.url);
       const target = g || { id: uid(), source: 'manual' };
-      const urlChanged = target.url !== url;
-      Object.assign(target, { url, name: v.name || (urlChanged || !target.name ? deriveLabel(url) : target.name), nameAuto: !v.name });
-      if (isHttpUrl(v.cover)) target.cover = v.cover;
-      else if (urlChanged || /^https?:/.test(target.cover || '')) target.cover = '';
+      Object.assign(target, { url, name: v.name || deriveLabel(url), title: v.title, password: v.password, date: v.date });
       if (!g) state.pixieset.unshift(target);
+      state.pixiesetSheet.tab = MANUAL_TAB;
       save(); render();
-      if (!target.cover) fetchCover(target);
     } });
 }
 
@@ -1308,29 +1272,25 @@ function connectSheet() {
     } });
 }
 
-function galleryCard(g) {
-  const loading = coveringIds.has(g.id);
-  const thumb = g.cover
-    ? h('img', { src: g.cover, alt: '', loading: 'lazy' })
-    : h('div', { class: 'site-thumb-empty' }, loading ? 'Cerco la copertina…' : 'Nessuna copertina');
-  const sub = [g.title, g.date].filter(Boolean).join(' · ');
-  return h('div', { class: 'site-card gallery-card' },
-    h('button', { class: 'site-thumb', onclick: () => window.api.openExternal(normalizeUrl(g.url)), title: g.url }, thumb),
-    h('div', { class: 'site-meta' },
-      h('div', { class: 'site-name', title: g.name }, g.name),
-      sub && h('div', { class: 'site-host gallery-sub', title: sub }, sub),
-      h('div', { class: 'site-host' }, g.source === 'sheet' && h('span', { class: 'sheet-badge' }, icon('table'), 'Foglio'), hostOf(g.url))),
-    h('div', { class: 'site-actions' },
-      h('button', { class: 'ghost small', title: 'Copia link', onclick: () => copy(normalizeUrl(g.url), 'Link copiato') }, icon('copy'), ' Link'),
-      g.password && h('button', { class: 'ghost small', title: 'Copia password', onclick: () => copy(g.password, 'Password copiata') }, icon('key'), ' Password'),
-      !g.coverFromSheet && h('button', { class: 'icon', title: 'Aggiorna copertina', disabled: loading, onclick: () => fetchCover(g) }, icon('rotate')),
-      editing && g.source !== 'sheet' && h('button', { class: 'icon', title: 'Modifica', onclick: () => editGallery(g) }, icon('pen')),
-      editing && g.source !== 'sheet' && h('button', { class: 'icon', title: 'Elimina', onclick: () => confirmBox(`Eliminare "${g.name}"?`, () => {
-        state.pixieset = state.pixieset.filter((x) => x.id !== g.id); save(); render();
-      }) }, icon('xmark'))));
+const galleryTab = (g) => (g.source === 'sheet' ? g.tab || 'Foglio' : MANUAL_TAB);
+
+function galleryRow(g) {
+  const url = normalizeUrl(g.url);
+  const sub = [g.date, hostOf(url)].filter(Boolean).join(' · ');
+  return h('div', { class: 'record gallery-row' },
+    h('div', { class: 'record-main' },
+      h('div', { class: 'record-title' }, g.name, g.title && h('span', { class: 'gallery-title' }, ' · ', g.title)),
+      h('div', { class: 'record-meta', title: url }, sub)),
+    h('button', { class: 'ghost small', title: url, onclick: () => window.api.openExternal(url) }, 'Apri'),
+    h('button', { class: 'ghost small', title: 'Copia link', onclick: () => copy(url, 'Link copiato') }, icon('copy'), ' Link'),
+    h('button', { class: 'ghost small', title: g.password ? 'Copia password' : 'Nessuna password', disabled: !g.password,
+      onclick: () => copy(g.password, 'Password copiata') }, icon('key'), ' Password'),
+    editing && g.source !== 'sheet' && h('button', { class: 'icon', title: 'Modifica', onclick: () => editGallery(g) }, icon('pen')),
+    editing && g.source !== 'sheet' && h('button', { class: 'icon', title: 'Elimina', onclick: () => confirmBox(`Eliminare "${g.name}"?`, () => {
+      state.pixieset = state.pixieset.filter((x) => x.id !== g.id); save(); render();
+    }) }, icon('xmark')));
 }
 
-let pixiesetQuery = '';
 const galleryMatches = (g, q) => `${g.name} ${g.title || ''} ${g.date || ''} ${g.url}`.toLowerCase().includes(q);
 
 function renderPixieset(view) {
@@ -1344,26 +1304,37 @@ function renderPixieset(view) {
     h('button', { class: 'ghost', onclick: connectSheet }, icon('table'), cfg.url ? ' Foglio Google' : ' Collega foglio Google'),
     cfg.url && h('button', { class: 'ghost', disabled: sheetSyncing, onclick: () => syncPixiesetSheet() }, icon('rotate'), ' Aggiorna dal foglio'),
     status && h('span', { class: 'sheet-status' + (cfg.error ? ' error' : '') }, status)));
+
+  if (cfg.url && !sheetSyncing && Date.now() - Math.max(cfg.syncedAt, lastSheetAttempt) > SHEET_SYNC_EVERY) syncPixiesetSheet({ quiet: true });
+
   if (!state.pixieset.length) {
     view.append(h('div', { class: 'empty' }, cfg.url ? 'Nessuna galleria nel foglio.'
       : 'Nessuna galleria. Aggiungile a mano o collega il foglio Google (vedi README: script Google per i fogli privati).'));
-  } else {
-    // Il filtro ridisegna solo la griglia, così il campo non perde il focus
-    const grid = h('div', { class: 'site-grid' });
-    const fill = () => {
-      const q = pixiesetQuery.trim().toLowerCase();
-      const shown = q ? state.pixieset.filter((g) => galleryMatches(g, q)) : state.pixieset;
-      grid.replaceChildren(...(shown.length ? shown.map(galleryCard) : [h('div', { class: 'empty' }, 'Nessuna galleria trovata.')]));
-    };
-    view.append(
-      h('div', { class: 'search gallery-search' }, icon('magnifying-glass', 'search-icon'),
-        h('input', { type: 'text', placeholder: 'Cerca cliente, galleria, data…', value: pixiesetQuery,
-          oninput: (e) => { pixiesetQuery = e.target.value; fill(); } })),
-      grid);
-    fill();
+    return;
   }
-  if (cfg.url && !sheetSyncing && Date.now() - Math.max(cfg.syncedAt, lastSheetAttempt) > SHEET_SYNC_EVERY) syncPixiesetSheet({ quiet: true });
-  else setTimeout(fetchMissingCovers, 0);
+
+  // Una scheda per foglio (fotografo), più quelle aggiunte a mano
+  const tabs = [...new Set(state.pixieset.map(galleryTab))].sort((a, b) => (a === MANUAL_TAB) - (b === MANUAL_TAB));
+  if (!tabs.includes(cfg.tab)) cfg.tab = tabs[0];
+  if (tabs.length > 1) {
+    view.append(h('div', { class: 'subtabs' }, tabs.map((t) =>
+      h('button', { class: 'subtab' + (t === cfg.tab ? ' active' : ''), onclick: () => { cfg.tab = t; save(); render(); } },
+        t, h('span', { class: 'subtab-count' }, state.pixieset.filter((g) => galleryTab(g) === t).length)))));
+  }
+
+  // Il filtro ridisegna solo l'elenco, così il campo non perde il focus
+  const list = h('div', { class: 'card records' });
+  const fill = () => {
+    const q = pixiesetQuery.trim().toLowerCase();
+    const shown = state.pixieset.filter((g) => galleryTab(g) === cfg.tab && (!q || galleryMatches(g, q)));
+    list.replaceChildren(...(shown.length ? shown.map(galleryRow) : [h('div', { class: 'empty' }, 'Nessuna galleria trovata.')]));
+  };
+  view.append(
+    h('div', { class: 'search gallery-search' }, icon('magnifying-glass', 'search-icon'),
+      h('input', { type: 'text', placeholder: 'Cerca cliente, galleria, data…', value: pixiesetQuery,
+        oninput: (e) => { pixiesetQuery = e.target.value; fill(); } })),
+    list);
+  fill();
 }
 
 // ---------- Aspetto ----------

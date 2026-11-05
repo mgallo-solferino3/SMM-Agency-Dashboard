@@ -458,41 +458,6 @@ ipcMain.handle('sites:capture', async (_e, { id, url }) => {
   }
 });
 
-// ---- Pixieset: copertina della galleria (immagine di anteprima og:image, altrimenti screenshot) ----
-const COVER_WIDTH = 800;
-
-ipcMain.handle('pixieset:cover', async (_e, { id, url }) => {
-  const safeId = String(id).replace(/[^a-z0-9_-]/gi, '');
-  try {
-    return await withHiddenPage(url, async (w) => {
-      const meta = await w.webContents.executeJavaScript(`(() => {
-        const m = (s) => (document.querySelector(s) || {}).content || '';
-        return { image: m('meta[property="og:image"]') || m('meta[name="twitter:image"]'),
-                 title: m('meta[property="og:title"]') || document.title || '' };
-      })()`);
-      const title = String(meta.title || '').trim().slice(0, 120);
-      let imageUrl = null;
-      try { imageUrl = meta.image ? new URL(meta.image, url) : null; } catch (_) {}
-      if (imageUrl && (imageUrl.protocol === 'https:' || imageUrl.protocol === 'http:')) {
-        try {
-          const res = await w.webContents.session.fetch(imageUrl.toString());
-          if (res.ok && /^image\//.test(res.headers.get('content-type') || '')) {
-            const img = nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer()));
-            if (!img.isEmpty()) {
-              const { width } = img.getSize();
-              const resized = width > COVER_WIDTH ? img.resize({ width: COVER_WIDTH, quality: 'good' }) : img;
-              return { url: writeThumb(`pixieset-${safeId}.jpg`, resized.toJPEG(85)), title };
-            }
-          }
-        } catch (_) { /* si ripiega sullo screenshot */ }
-      }
-      return { url: writeThumb(`pixieset-${safeId}.jpg`, (await w.webContents.capturePage()).toJPEG(85)), title, screenshot: true };
-    });
-  } catch (err) {
-    return { error: String((err && err.message) || err) };
-  }
-});
-
 // ---- Foglio Google come CSV: serve la condivisione "Chiunque abbia il link può visualizzare" ----
 function sheetCsvUrl(input) {
   const u = new URL(String(input).trim());
@@ -523,7 +488,11 @@ async function fetchAppsScript(u, key) {
   }
   const data = await res.json();
   if (data.error) return { error: `Script Google: ${data.error}` };
-  return Array.isArray(data.rows) ? { rows: data.rows } : { error: 'Risposta dello script non valida' };
+  // Lo script attuale restituisce tutte le schede; la prima versione solo { sheet, rows }
+  if (Array.isArray(data.sheets)) {
+    return { sheets: data.sheets.filter((s) => Array.isArray(s.rows)).map((s) => ({ name: String(s.name || 'Foglio'), rows: s.rows })) };
+  }
+  return Array.isArray(data.rows) ? { sheets: [{ name: String(data.sheet || 'Foglio'), rows: data.rows }] } : { error: 'Risposta dello script non valida' };
 }
 
 ipcMain.handle('sheet:fetch', async (_e, { url, key } = {}) => {

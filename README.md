@@ -80,11 +80,11 @@ Le sezioni qui sopra ci sono per tutti. Il profilo scelto nelle Impostazioni agg
 
 Nelle Impostazioni, sotto **Strumenti**, si possono attivare con una spunta anche gli strumenti degli altri profili (es. un Social Media Manager può aggiungere Palette colori e Font): compaiono nel menu sotto **Altri strumenti**.
 
-**Pixieset**: elenco delle gallerie con cliente, titolo, data, copertina e pulsanti per copiare link e password. La copertina viene ricavata dalla galleria (immagine di anteprima, altrimenti uno screenshot). In alto c'è la ricerca per cliente, galleria o data.
+**Pixieset**: elenco delle gallerie con cliente, galleria, data e pulsanti per aprirle e copiare link e password, con ricerca. Se il foglio ha più schede (es. una per fotografo) in alto compare la scelta tra le schede.
 
-L'elenco può arrivare da un **foglio Google** (colonne riconosciute: Cliente/Nome, Link, Password, Data, Note, Copertina). Due modi:
+L'elenco può arrivare da un **foglio Google** (colonne riconosciute: Cliente/Nome, Link, Password, Data, Note; vengono lette tutte le schede visibili). Due modi:
 
-- **Foglio privato (consigliato, obbligatorio se contiene password)**: nel foglio *Estensioni → Apps Script*, incolla [`scripts/pixieset-sheet.gs`](scripts/pixieset-sheet.gs), scrivi una chiave segreta in `KEY` e l'id della scheda in `SHEET_GID`, poi *Distribuisci → Nuova distribuzione → App web* con *Esegui come: Me* e *Chi ha accesso: Chiunque*. Nell'app premi **Collega foglio Google** e incolla l'URL `…/exec` e la chiave. Il foglio resta privato e lo script legge anche i link nascosti dietro un testo.
+- **Foglio privato (consigliato, obbligatorio se contiene password)**: nel foglio *Estensioni → Apps Script*, incolla [`scripts/pixieset-sheet.gs`](scripts/pixieset-sheet.gs), scrivi una chiave segreta in `KEY`, poi *Distribuisci → Nuova distribuzione → App web* con *Esegui come: Me* e *Chi ha accesso: Chiunque*. Nell'app premi **Collega foglio Google** e incolla l'URL `…/exec` e la chiave. Il foglio resta privato e lo script legge anche i link nascosti dietro un testo.
 - **Foglio senza dati riservati**: condividilo come *Chiunque abbia il link può visualizzare* e incolla direttamente il link del foglio (in questo caso i testi con un link collegato vengono persi).
 
 L'app rilegge il foglio quando apri la sezione (al massimo ogni 10 minuti) o con **Aggiorna dal foglio**; le gallerie del foglio si modificano nel foglio, quelle aggiunte a mano nell'app.

@@ -1,25 +1,28 @@
-// Agency Dashboard SMM: legge il foglio delle gallerie Pixieset e lo restituisce all'app in JSON.
+// Agency Dashboard SMM: legge le schede del foglio delle gallerie Pixieset e le restituisce all'app in JSON.
 // Il foglio resta privato: lo script gira con i permessi di chi lo pubblica e risponde solo a chi conosce la chiave.
-// Per ogni cella restituisce il testo visibile e, se c'è, il link collegato al testo.
+// Restituisce tutte le schede visibili (es. una per fotografo); per ogni cella il testo visibile e,
+// se c'è, il link collegato al testo.
 //
-// Installazione (dal foglio): Estensioni → Apps Script → incolla questo file → imposta KEY e SHEET_GID →
-// salva → Esegui il deployment → Nuovo deployment → App web → Esegui come: Me → Chi ha accesso: Chiunque.
+// Installazione (dal foglio): Estensioni → Apps Script → incolla questo file → imposta KEY → salva →
+// Esegui il deployment → Nuovo deployment → App web → Esegui come: Me → Chi ha accesso: Chiunque.
+// Per aggiornarlo: Gestisci deployment → matita → Versione: Nuova versione (l'URL resta lo stesso).
 // Niente commenti a blocchi né barre rovesciate: si perdono facilmente nel copia-incolla.
 const KEY = 'INCOLLA_QUI_LA_CHIAVE'; // la stessa chiave va inserita nell'app
-const SHEET_GID = null; // id della scheda (il numero dopo "gid=" nel link), null = la prima scheda
 
 function doGet(e) {
   const params = (e && e.parameter) || {};
   if (!KEY || KEY === 'INCOLLA_QUI_LA_CHIAVE' || params.key !== KEY) return json({ error: 'Chiave non valida' });
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const gid = params.gid || SHEET_GID;
-  const sheet = (gid && ss.getSheets().find((s) => String(s.getSheetId()) === String(gid))) || ss.getSheets()[0];
+  const sheets = SpreadsheetApp.getActiveSpreadsheet().getSheets()
+    .filter((s) => !s.isSheetHidden() && (!params.gid || String(s.getSheetId()) === String(params.gid)));
+  return json({ sheets: sheets.map((s) => ({ name: s.getName(), gid: s.getSheetId(), rows: readRows(s) })) });
+}
+
+function readRows(sheet) {
   const range = sheet.getDataRange();
   const values = range.getDisplayValues();
   const rich = range.getRichTextValues();
   const formulas = range.getFormulas();
-  const rows = values.map((row, r) => row.map((v, c) => ({ v, u: linkOf(rich[r][c], formulas[r][c]) })));
-  return json({ sheet: sheet.getName(), rows });
+  return values.map((row, r) => row.map((v, c) => ({ v, u: linkOf(rich[r][c], formulas[r][c]) })));
 }
 
 // Link della cella: testo collegato (tutto o in parte) oppure formula =HYPERLINK("…")
