@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: file: https:">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agency Dashboard SMM</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="drag-region"></div>
+  <aside class="sidebar">
+    <div class="brand">Agency<span>Dashboard SMM</span></div>
+    <nav id="nav"></nav>
+    <div class="sidebar-foot">
+      <button class="ghost small" id="btn-export">Esporta backup</button>
+      <button class="ghost small" id="btn-import">Importa backup</button>
+    </div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <h1 id="page-title"></h1>
+      <div class="topbar-actions">
+        <button class="ghost" id="btn-edit">Modifica</button>
+      </div>
+    </header>
+    <section id="view" class="view"></section>
+  </main>
+  <dialog id="modal"></dialog>
+  <div id="toast" class="toast" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,58 @@
+{
+  "name": "agency-dashboard-smm",
+  "productName": "Agency Dashboard SMM",
+  "version": "1.0.0",
+  "description": "Dashboard locale per Mac e Windows con link, strumenti e utility per il lavoro di agenzia",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "install-local": "npm run dist && rm -rf \"/Applications/Agency Dashboard SMM.app\" && ditto \"dist/mac-universal/Agency Dashboard SMM.app\" \"/Applications/Agency Dashboard SMM.app\" && xattr -cr \"/Applications/Agency Dashboard SMM.app\""
+  },
+  "build": {
+    "appId": "agency.solferino3.dashboard.smm",
+    "productName": "Agency Dashboard SMM",
+    "files": [
+      "main.js",
+      "preload.js",
+      "widget-preload.js",
+      "renderer/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.productivity",
+      "identity": null,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "artifactName": "${productName} Setup ${version}.${ext}",
+      "shortcutName": "Agency Dashboard SMM"
+    },
+    "afterSign": "build/adhoc-sign.js"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}
