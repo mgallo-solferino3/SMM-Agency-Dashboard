@@ -510,7 +510,9 @@ function sheetCsvUrl(input) {
 }
 
 // Script Google Apps pubblicato come app web (scripts/pixieset-sheet.gs): il foglio resta privato
-const isAppsScriptUrl = (u) => u.hostname === 'script.google.com' && /^\/macros\/s\/[\w-]+\/exec$/.test(u.pathname);
+// Anche nella forma degli account Google Workspace: /a/macros/<dominio>/s/<id>/exec
+const isAppsScriptUrl = (u) => u.hostname === 'script.google.com'
+  && /^\/(a\/macros\/[\w.-]+|macros)\/s\/[\w-]+\/exec$/.test(u.pathname);
 
 async function fetchAppsScript(u, key) {
   u.searchParams.set('key', String(key || ''));
