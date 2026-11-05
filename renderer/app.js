@@ -375,6 +375,7 @@ const PROFILE_PAGES = {
   palette: { label: 'Palette colori', icon: 'palette' },
   font: { label: 'Font', icon: 'font' },
   shooting: { label: 'Shooting', icon: 'camera' },
+  pixieset: { label: 'Pixieset', icon: 'images' },
   lead: { label: 'Lead', icon: 'handshake' },
   preventivi: { label: 'Preventivi', icon: 'file-invoice' },
   progetti: { label: 'Progetti', icon: 'folder-open' },
@@ -383,12 +384,12 @@ const PROFILE_PAGES = {
 const PROFILES = [
   { id: 'smm', label: 'Social Media Manager', icon: 'hashtag', pages: ['utm', 'calendario'] },
   { id: 'grafico', label: 'Grafico', icon: 'pen-nib', pages: ['palette', 'font'] },
-  { id: 'fotografo', label: 'Fotografo', icon: 'camera-retro', pages: ['shooting'] },
+  { id: 'fotografo', label: 'Fotografo', icon: 'camera-retro', pages: ['shooting', 'pixieset'] },
   { id: 'commerciale', label: 'Commerciale', icon: 'briefcase', pages: ['lead', 'preventivi'] },
   { id: 'pm', label: 'Project Manager', icon: 'list-check', pages: ['progetti', 'scadenze'] },
 ];
 const SETTINGS_PAGE = { id: 'settings', label: 'Impostazioni', icon: 'gear' };
-const EDITABLE = new Set(['tools', 'idee', 'snippets', 'appunti', 'palette']);
+const EDITABLE = new Set(['tools', 'idee', 'snippets', 'appunti', 'palette', 'pixieset']);
 
 const currentProfile = () => PROFILES.find((p) => p.id === state.settings.profile) || PROFILES[0];
 const pageMeta = (id) => ({ id, ...PROFILE_PAGES[id] });
@@ -439,7 +440,7 @@ function render() {
   view.innerHTML = '';
   const renderers = { home: renderHome, tools: renderTools, idee: renderIdee, todos: renderTodos,
     notes: renderNotes, appunti: renderAppunti, utm: renderUtm, snippets: renderSnippets,
-    palette: renderPalette, settings: renderSettings };
+    palette: renderPalette, pixieset: renderPixieset, settings: renderSettings };
   (renderers[page] || ((v) => renderRecords(v, page)))(view);
 }
 
@@ -1118,6 +1119,198 @@ function renderPalette(view) {
       editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => deleteRecord('palette', p) }, icon('xmark')))))));
 }
 
+// --- PIXIESET (Fotografo): gallerie con copertina, anche da un foglio Google
+const SHEET_SYNC_EVERY = 10 * 60 * 1000;
+const coveringIds = new Set();
+let coverQueueRunning = false;
+let sheetSyncing = false;
+let lastSheetAttempt = 0; // anche i tentativi falliti: niente nuovi tentativi automatici a ogni ridisegno
+const coverFailedIds = new Set(); // copertine non trovate in questa sessione: si riprova solo a mano
+
+const isPixiesetVisible = () => page === 'pixieset';
+const renderIfPixiesetVisible = () => { if (isPixiesetVisible()) render(); };
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [], field = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); rows.push(row); row = []; field = '';
+    } else field += c;
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  return rows.filter((r) => r.some((v) => v.trim()));
+}
+
+// Colonne riconosciute dall'intestazione (Nome, Link, Copertina). Senza intestazione ogni riga si legge da sola:
+// il primo link è la galleria, il primo testo il nome, un secondo link la copertina.
+const isHttpUrl = (v) => /^https?:\/\/\S+$/i.test((v || '').trim());
+function galleriesFromSheet(rows) {
+  if (!rows.length) return [];
+  const head = rows[0].map((v) => v.trim().toLowerCase());
+  const col = (re) => head.findIndex((v) => re.test(v));
+  const iUrl = col(/link|url|indirizzo/);
+  let list;
+  if (iUrl >= 0) {
+    const iName = col(/nome|name|titolo|title|cliente|galleria/);
+    const iCover = col(/copertina|cover|immagine|image/);
+    list = rows.slice(1).map((r) => ({ name: r[iName] || '', url: r[iUrl] || '', cover: r[iCover] || '' }));
+  } else {
+    list = rows.map((r) => {
+      const cells = r.map((v) => v.trim());
+      const links = cells.filter(isHttpUrl);
+      return { name: cells.find((v) => v && !isHttpUrl(v)) || '', url: links[0] || '', cover: links[1] || '' };
+    });
+  }
+  return list.map((g) => ({ name: g.name.trim(), url: g.url.trim(), cover: isHttpUrl(g.cover) ? g.cover.trim() : '' }))
+    .filter((g) => isHttpUrl(g.url));
+}
+
+async function syncPixiesetSheet({ quiet = false } = {}) {
+  const cfg = state.pixiesetSheet;
+  if (!cfg.url || sheetSyncing) return;
+  sheetSyncing = true;
+  lastSheetAttempt = Date.now();
+  renderIfPixiesetVisible();
+  const res = await window.api.fetchSheet(cfg.url);
+  sheetSyncing = false;
+  if (res.error) {
+    cfg.error = res.error;
+    save(); renderIfPixiesetVisible();
+    if (!quiet) toast(res.error);
+    return;
+  }
+  const previous = new Map(state.pixieset.filter((g) => g.source === 'sheet').map((g) => [g.url, g]));
+  const fromSheet = galleriesFromSheet(parseCsv(res.csv)).map((r) => {
+    const prev = previous.get(r.url);
+    return {
+      id: prev?.id || uid(), source: 'sheet', url: r.url,
+      name: r.name || prev?.name || deriveLabel(r.url),
+      nameAuto: !r.name && (prev ? prev.nameAuto : true),
+      cover: r.cover || (prev?.coverFromSheet ? '' : prev?.cover) || '',
+      coverFromSheet: !!r.cover,
+    };
+  });
+  state.pixieset = [...state.pixieset.filter((g) => g.source !== 'sheet'), ...fromSheet];
+  Object.assign(cfg, { syncedAt: Date.now(), error: '' });
+  save(); renderIfPixiesetVisible();
+  if (!quiet) toast(`Foglio sincronizzato: ${fromSheet.length} gallerie`);
+  fetchMissingCovers();
+}
+
+async function fetchCover(g) {
+  coveringIds.add(g.id);
+  renderIfPixiesetVisible();
+  const res = await window.api.pixiesetCover(g.id, normalizeUrl(g.url));
+  coveringIds.delete(g.id);
+  if (res && res.url) {
+    coverFailedIds.delete(g.id);
+    g.cover = res.url;
+    g.coverFromSheet = false;
+    if (g.nameAuto && res.title) { g.name = res.title; g.nameAuto = false; }
+    save();
+  } else {
+    coverFailedIds.add(g.id);
+    toast(`Copertina "${g.name}" non trovata`);
+  }
+  renderIfPixiesetVisible();
+}
+
+async function fetchMissingCovers() {
+  if (coverQueueRunning) return;
+  coverQueueRunning = true;
+  for (const g of state.pixieset.filter((x) => !x.cover && !coverFailedIds.has(x.id))) {
+    if (!isPixiesetVisible()) break;
+    if (state.pixieset.includes(g)) await fetchCover(g);
+  }
+  coverQueueRunning = false;
+}
+
+function galleryFields(g = {}) {
+  return [
+    { name: 'name', label: 'Nome', value: g.nameAuto ? '' : g.name || '', placeholder: 'Es. Matrimonio Rossi (se vuoto lo prendo da Pixieset)' },
+    { name: 'url', label: 'Link della galleria', value: g.url || '', placeholder: 'https://studio.pixieset.com/galleria/' },
+    { name: 'cover', label: 'Copertina (URL immagine, facoltativo)', value: /^https?:/.test(g.cover || '') ? g.cover : '',
+      placeholder: 'Se vuoto la ricavo dalla galleria' },
+  ];
+}
+
+function editGallery(g) {
+  openForm({ title: g ? 'Modifica galleria' : 'Nuova galleria', fields: galleryFields(g),
+    onSubmit: (v) => {
+      if (!v.url) return false;
+      const url = normalizeUrl(v.url);
+      const target = g || { id: uid(), source: 'manual' };
+      const urlChanged = target.url !== url;
+      Object.assign(target, { url, name: v.name || (urlChanged || !target.name ? deriveLabel(url) : target.name), nameAuto: !v.name });
+      if (isHttpUrl(v.cover)) target.cover = v.cover;
+      else if (urlChanged || /^https?:/.test(target.cover || '')) target.cover = '';
+      if (!g) state.pixieset.unshift(target);
+      save(); render();
+      if (!target.cover) fetchCover(target);
+    } });
+}
+
+function connectSheet() {
+  openForm({ title: 'Foglio Google', submitLabel: 'Collega',
+    fields: [{ name: 'url', label: 'Link del foglio', value: state.pixiesetSheet.url,
+      placeholder: 'https://docs.google.com/spreadsheets/d/…' }],
+    onSubmit: (v) => {
+      Object.assign(state.pixiesetSheet, { url: v.url, error: '', syncedAt: 0 });
+      if (!v.url) state.pixieset = state.pixieset.filter((g) => g.source !== 'sheet');
+      save();
+      if (v.url) syncPixiesetSheet(); // prima del render, così la pagina non avvia una seconda sincronizzazione silenziosa
+      render();
+    } });
+}
+
+function galleryCard(g) {
+  const loading = coveringIds.has(g.id);
+  const thumb = g.cover
+    ? h('img', { src: g.cover, alt: '' })
+    : h('div', { class: 'site-thumb-empty' }, loading ? 'Cerco la copertina…' : 'Nessuna copertina');
+  return h('div', { class: 'site-card gallery-card' },
+    h('button', { class: 'site-thumb', onclick: () => window.api.openExternal(normalizeUrl(g.url)), title: g.url }, thumb),
+    h('div', { class: 'site-meta' },
+      h('div', { class: 'site-name' }, g.name),
+      h('div', { class: 'site-host' }, g.source === 'sheet' && h('span', { class: 'sheet-badge' }, icon('table'), 'Foglio'), hostOf(g.url))),
+    h('div', { class: 'site-actions' },
+      h('button', { class: 'ghost small', onclick: () => copy(normalizeUrl(g.url), 'Link copiato') }, icon('copy'), ' Copia link'),
+      !g.coverFromSheet && h('button', { class: 'icon', title: 'Aggiorna copertina', disabled: loading, onclick: () => fetchCover(g) }, icon('rotate')),
+      editing && g.source !== 'sheet' && h('button', { class: 'icon', title: 'Modifica', onclick: () => editGallery(g) }, icon('pen')),
+      editing && g.source !== 'sheet' && h('button', { class: 'icon', title: 'Elimina', onclick: () => confirmBox(`Eliminare "${g.name}"?`, () => {
+        state.pixieset = state.pixieset.filter((x) => x.id !== g.id); save(); render();
+      }) }, icon('xmark'))));
+}
+
+function renderPixieset(view) {
+  const cfg = state.pixiesetSheet;
+  const status = sheetSyncing ? 'Sincronizzazione…'
+    : cfg.error ? cfg.error
+      : cfg.syncedAt ? `Sincronizzato alle ${new Date(cfg.syncedAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}` : '';
+  view.append(h('div', { class: 'row', style: 'margin-bottom:16px; align-items:center; flex-wrap:wrap' },
+    h('button', { class: 'primary', onclick: () => editGallery() }, '+ Nuova galleria'),
+    h('button', { class: 'ghost', onclick: connectSheet }, icon('table'), cfg.url ? ' Foglio Google' : ' Collega foglio Google'),
+    cfg.url && h('button', { class: 'ghost', disabled: sheetSyncing, onclick: () => syncPixiesetSheet() }, icon('rotate'), ' Aggiorna dal foglio'),
+    status && h('span', { class: 'sheet-status' + (cfg.error ? ' error' : '') }, status)));
+  if (!state.pixieset.length) {
+    view.append(h('div', { class: 'empty' }, cfg.url ? 'Nessuna galleria nel foglio.'
+      : 'Nessuna galleria. Aggiungile a mano o collega un foglio Google con le colonne Nome, Link e (facoltativa) Copertina.'));
+  } else {
+    view.append(h('div', { class: 'site-grid' }, state.pixieset.map(galleryCard)));
+  }
+  if (cfg.url && !sheetSyncing && Date.now() - Math.max(cfg.syncedAt, lastSheetAttempt) > SHEET_SYNC_EVERY) syncPixiesetSheet({ quiet: true });
+  else setTimeout(fetchMissingCovers, 0);
+}
+
 // ---------- Aspetto ----------
 const PALETTES = [
   { id: 'rosa', label: 'Rosa',
@@ -1345,6 +1538,8 @@ function normalizeState(d) {
     appunti: Array.isArray(d.appunti) ? d.appunti : [],
     snippets: Array.isArray(d.snippets) ? d.snippets : [],
     ...Object.fromEntries(RECORD_KEYS.map((k) => [k, Array.isArray(d[k]) ? d[k] : []])),
+    pixieset: Array.isArray(d.pixieset) ? d.pixieset : [],
+    pixiesetSheet: { url: '', syncedAt: 0, error: '', ...(d.pixiesetSheet && typeof d.pixiesetSheet === 'object' ? d.pixiesetSheet : {}) },
     settings: normalizeSettings(d.settings),
   };
 }

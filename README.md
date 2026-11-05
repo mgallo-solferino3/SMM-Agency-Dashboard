@@ -74,11 +74,13 @@ Le sezioni qui sopra ci sono per tutti. Il profilo scelto nelle Impostazioni agg
 | --- | --- |
 | Social Media Manager | Generatore UTM, Calendario editoriale |
 | Grafico | Palette colori, Font |
-| Fotografo | Shooting |
+| Fotografo | Shooting, Pixieset |
 | Commerciale | Lead, Preventivi |
 | Project Manager | Progetti, Scadenze |
 
 Nelle Impostazioni, sotto **Strumenti**, si possono attivare con una spunta anche gli strumenti degli altri profili (es. un Social Media Manager può aggiungere Palette colori e Font): compaiono nel menu sotto **Altri strumenti**.
+
+**Pixieset**: elenco delle gallerie con nome, link e copertina. La copertina viene ricavata dalla galleria (immagine di anteprima, altrimenti uno screenshot). L'elenco può arrivare da un **foglio Google**: condividilo come *Chiunque abbia il link può visualizzare*, premi **Collega foglio Google** e incolla il link. Colonne: **Nome**, **Link** e, facoltativa, **Copertina** (URL di un'immagine). L'app rilegge il foglio quando apri la sezione (al massimo ogni 10 minuti) o con **Aggiorna dal foglio**; le gallerie del foglio si modificano nel foglio, quelle aggiunte a mano nell'app.
 
 Le schede con una data compaiono in Home sotto **In programma**. Un clic sullo stato di una scheda la fa passare allo stato successivo. Cambiando profilo i dati delle altre sezioni restano salvati.
 

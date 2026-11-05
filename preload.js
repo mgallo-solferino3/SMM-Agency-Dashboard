@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('api', {
   exportData: (data) => ipcRenderer.invoke('data:export', data),
   importData: () => ipcRenderer.invoke('data:import'),
   captureSite: (id, url) => ipcRenderer.invoke('sites:capture', { id, url }),
+  pixiesetCover: (id, url) => ipcRenderer.invoke('pixieset:cover', { id, url }),
+  fetchSheet: (url) => ipcRenderer.invoke('sheet:fetch', url),
   listApps: () => ipcRenderer.invoke('apps:list'),
   appIcon: (appPath) => ipcRenderer.invoke('apps:icon', appPath),
   checkUpdate: () => ipcRenderer.invoke('update:check'),

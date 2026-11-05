@@ -415,39 +415,110 @@ ipcMain.handle('data:export', async (_e, data) => {
 // ---- Screenshot "siti belli" ----
 const THUMBS_DIR = () => path.join(app.getPath('userData'), 'thumbnails');
 
-ipcMain.handle('sites:capture', async (_e, { id, url }) => {
-  let capWin;
+// Apre la pagina in una finestra nascosta (un vero Chromium: passa anche i controlli anti-bot) e ci esegue fn
+async function withHiddenPage(url, fn) {
+  const target = new URL(url);
+  if (target.protocol !== 'http:' && target.protocol !== 'https:') throw new Error('URL non valido');
+  const capWin = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    show: false,
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+  });
   try {
-    const target = new URL(url);
-    if (target.protocol !== 'http:' && target.protocol !== 'https:') return { error: 'URL non valido' };
-
-    capWin = new BrowserWindow({
-      width: 1280,
-      height: 800,
-      show: false,
-      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
-    });
-
     const loaded = new Promise((resolve, reject) => {
       capWin.webContents.once('did-finish-load', resolve);
       capWin.webContents.once('did-fail-load', (_ev, code, desc) => reject(new Error(desc || `load-failed-${code}`)));
     });
     const timeout = new Promise((_resolve, reject) => setTimeout(() => reject(new Error('timeout')), 20000));
-
     capWin.loadURL(target.toString());
     await Promise.race([loaded, timeout]);
     await new Promise((r) => setTimeout(r, 1200)); // lascia assestare font/animazioni
+    return await fn(capWin);
+  } finally {
+    if (!capWin.isDestroyed()) capWin.destroy();
+  }
+}
 
-    const image = await capWin.webContents.capturePage();
-    const dir = THUMBS_DIR();
-    fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, `${id}.png`);
-    fs.writeFileSync(file, image.toPNG());
-    return { url: pathToFileURL(file).toString() + `?t=${Date.now()}` };
+const thumbFileUrl = (file) => pathToFileURL(file).toString() + `?t=${Date.now()}`;
+
+function writeThumb(name, buffer) {
+  const dir = THUMBS_DIR();
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, name);
+  fs.writeFileSync(file, buffer);
+  return thumbFileUrl(file);
+}
+
+ipcMain.handle('sites:capture', async (_e, { id, url }) => {
+  try {
+    return await withHiddenPage(url, async (w) => ({ url: writeThumb(`${id}.png`, (await w.webContents.capturePage()).toPNG()) }));
   } catch (err) {
     return { error: String((err && err.message) || err) };
-  } finally {
-    if (capWin && !capWin.isDestroyed()) capWin.destroy();
+  }
+});
+
+// ---- Pixieset: copertina della galleria (immagine di anteprima og:image, altrimenti screenshot) ----
+const COVER_WIDTH = 800;
+
+ipcMain.handle('pixieset:cover', async (_e, { id, url }) => {
+  const safeId = String(id).replace(/[^a-z0-9_-]/gi, '');
+  try {
+    return await withHiddenPage(url, async (w) => {
+      const meta = await w.webContents.executeJavaScript(`(() => {
+        const m = (s) => (document.querySelector(s) || {}).content || '';
+        return { image: m('meta[property="og:image"]') || m('meta[name="twitter:image"]'),
+                 title: m('meta[property="og:title"]') || document.title || '' };
+      })()`);
+      const title = String(meta.title || '').trim().slice(0, 120);
+      let imageUrl = null;
+      try { imageUrl = meta.image ? new URL(meta.image, url) : null; } catch (_) {}
+      if (imageUrl && (imageUrl.protocol === 'https:' || imageUrl.protocol === 'http:')) {
+        try {
+          const res = await w.webContents.session.fetch(imageUrl.toString());
+          if (res.ok && /^image\//.test(res.headers.get('content-type') || '')) {
+            const img = nativeImage.createFromBuffer(Buffer.from(await res.arrayBuffer()));
+            if (!img.isEmpty()) {
+              const { width } = img.getSize();
+              const resized = width > COVER_WIDTH ? img.resize({ width: COVER_WIDTH, quality: 'good' }) : img;
+              return { url: writeThumb(`pixieset-${safeId}.jpg`, resized.toJPEG(85)), title };
+            }
+          }
+        } catch (_) { /* si ripiega sullo screenshot */ }
+      }
+      return { url: writeThumb(`pixieset-${safeId}.jpg`, (await w.webContents.capturePage()).toJPEG(85)), title, screenshot: true };
+    });
+  } catch (err) {
+    return { error: String((err && err.message) || err) };
+  }
+});
+
+// ---- Foglio Google come CSV: serve la condivisione "Chiunque abbia il link può visualizzare" ----
+function sheetCsvUrl(input) {
+  const u = new URL(String(input).trim());
+  if (u.hostname !== 'docs.google.com') throw new Error('Il link deve essere di un foglio Google (docs.google.com)');
+  // Foglio "pubblicato sul web": …/d/e/<id>/pubhtml → …/pub?output=csv
+  const published = u.pathname.match(/^\/spreadsheets\/d\/e\/([\w-]+)/);
+  if (published) {
+    const gid = u.searchParams.get('gid');
+    return `https://docs.google.com/spreadsheets/d/e/${published[1]}/pub?output=csv${gid ? `&gid=${gid}` : ''}`;
+  }
+  const id = u.pathname.match(/^\/spreadsheets\/d\/([\w-]+)/);
+  if (!id) throw new Error('Non riconosco il link del foglio Google');
+  const gid = (u.hash.match(/gid=(\d+)/) || u.search.match(/gid=(\d+)/) || [])[1];
+  return `https://docs.google.com/spreadsheets/d/${id[1]}/export?format=csv${gid ? `&gid=${gid}` : ''}`;
+}
+
+ipcMain.handle('sheet:fetch', async (_e, url) => {
+  try {
+    const res = await net.fetch(sheetCsvUrl(url), { cache: 'no-store' });
+    const type = res.headers.get('content-type') || '';
+    if (!res.ok || !type.includes('text/csv')) {
+      return { error: 'Foglio non leggibile: condividilo come "Chiunque abbia il link può visualizzare"' };
+    }
+    return { csv: await res.text() };
+  } catch (err) {
+    return { error: String((err && err.message) || err) };
   }
 });
 
