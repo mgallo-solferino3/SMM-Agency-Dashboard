@@ -565,7 +565,10 @@ ipcMain.handle('data:import', async () => {
 });
 
 // ---- Aggiornamenti: confronta la versione installata con l'ultima GitHub Release ----
-const LATEST_RELEASE_API = 'https://api.github.com/repos/mgallo-solferino3/SMM-Agency-Dashboard/releases/latest';
+// Si legge latest.json, pubblicato da scripts/release.sh insieme agli installer, dall'indirizzo di download
+// delle release: a differenza dell'API GitHub non ha il limite di 60 richieste/ora per IP (condiviso in ufficio).
+const RELEASES_URL = 'https://github.com/mgallo-solferino3/SMM-Agency-Dashboard/releases';
+const LATEST_MANIFEST_URL = `${RELEASES_URL}/latest/download/latest.json`;
 
 function isNewerVersion(candidate, current) {
   const a = candidate.split('.').map(Number);
@@ -576,33 +579,29 @@ function isNewerVersion(candidate, current) {
   return false;
 }
 
-// Controllo frequente per avvisare appena esce una release. Le richieste usano l'ETag:
-// se non è cambiato niente GitHub risponde 304, che non conta nel limite di 60 richieste/ora per IP.
+// Controllo frequente per avvisare appena esce una release
 const UPDATE_POLL_MS = 5 * 60 * 1000;
 const UPDATE_FOCUS_MIN_GAP_MS = 60 * 1000;
-let releaseEtag = null;
-let cachedRelease = null;
 let latestUpdate = null;
 let lastUpdateCheck = 0;
 let notifiedVersion = null;
 
-async function fetchLatestRelease() {
-  const headers = { Accept: 'application/vnd.github+json' };
-  if (releaseEtag) headers['If-None-Match'] = releaseEtag;
-  const res = await net.fetch(LATEST_RELEASE_API, { headers, cache: 'no-store' });
-  if (res.status === 304 || !res.ok) return cachedRelease;
-  releaseEtag = res.headers.get('etag');
-  cachedRelease = await res.json();
-  return cachedRelease;
+// { version, mac, win }: nomi degli installer dell'ultima release
+async function fetchLatestManifest() {
+  const res = await net.fetch(LATEST_MANIFEST_URL, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`latest.json non disponibile (${res.status})`);
+  return res.json();
 }
 
-function updateFromRelease(release) {
-  const version = String(release?.tag_name || '').replace(/^v/, '');
+const ASSET_NAME = /^[\w.-]+\.(dmg|exe)$/;
+
+function updateFromManifest(m) {
+  const version = String(m?.version || '');
   if (!/^\d+\.\d+\.\d+$/.test(version) || !isNewerVersion(version, app.getVersion())) return null;
-  const ext = IS_WIN ? '.exe' : '.dmg';
-  const asset = (release.assets || []).find((a) => a.name.endsWith(ext));
-  if (!asset) return null; // release senza installer per questa piattaforma (es. ancora in caricamento)
-  return { version, downloadUrl: asset.browser_download_url, notesUrl: release.html_url };
+  const asset = IS_WIN ? m.win : m.mac;
+  if (typeof asset !== 'string' || !ASSET_NAME.test(asset)) return null;
+  const tag = `${RELEASES_URL}/download/v${version}`;
+  return { version, downloadUrl: `${tag}/${asset}`, notesUrl: `${RELEASES_URL}/tag/v${version}` };
 }
 
 function notifyUpdate(update) {
@@ -623,7 +622,7 @@ function notifyUpdate(update) {
 async function checkForUpdate() {
   lastUpdateCheck = Date.now();
   try {
-    latestUpdate = updateFromRelease(await fetchLatestRelease());
+    latestUpdate = updateFromManifest(await fetchLatestManifest());
   } catch (_) {
     return latestUpdate; // offline o GitHub non raggiungibile: si riprova al prossimo controllo
   }

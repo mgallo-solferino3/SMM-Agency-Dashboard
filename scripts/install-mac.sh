@@ -18,8 +18,12 @@ cleanup() {
 trap cleanup EXIT
 
 echo "→ Cerco l'ultima versione"
-URL="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-  | grep -o '"browser_download_url": *"[^"]*mac-universal\.dmg"' | head -1 | cut -d'"' -f4)"
+# latest.json (pubblicato con ogni release) evita l'API GitHub e il suo limite di richieste per IP
+MANIFEST="$(curl -fsSL "https://github.com/$REPO/releases/latest/download/latest.json" || true)"
+VERSION="$(printf '%s' "$MANIFEST" | grep -o '"version":"[^"]*"' | cut -d'"' -f4)"
+ASSET="$(printf '%s' "$MANIFEST" | grep -o '"mac":"[^"]*"' | cut -d'"' -f4)"
+URL=""
+[ -n "$VERSION" ] && [ -n "$ASSET" ] && URL="https://github.com/$REPO/releases/download/v$VERSION/$ASSET"
 [ -n "$URL" ] || { echo "✗ Non trovo il file per Mac nell'ultima release"; exit 1; }
 echo "  $(basename "$URL")"
 

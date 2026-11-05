@@ -44,6 +44,8 @@ NAME="$(node -p "require('./package.json').build.productName")"
 SLUG="${NAME// /-}"
 cp "dist/$NAME-$VERSION-universal.dmg" "$ASSETS/$SLUG-$VERSION-mac-universal.dmg"
 cp "dist/$NAME Setup $VERSION.exe" "$ASSETS/$SLUG-Setup-$VERSION-windows.exe"
+# Letto dall'app per il controllo aggiornamenti (senza passare dall'API GitHub, che ha un limite per IP)
+printf '{"version":"%s","mac":"%s","win":"%s"}\n' "$VERSION" "$SLUG-$VERSION-mac-universal.dmg" "$SLUG-Setup-$VERSION-windows.exe" > "$ASSETS/latest.json"
 
 echo "→ Commit, tag e push"
 git add -A
@@ -69,6 +71,6 @@ EOF
 echo "→ Creo la GitHub Release"
 gh release create "$TAG" --target main --title "$NAME $VERSION" \
   --notes-file "$ASSETS/notes.md" --generate-notes \
-  "$ASSETS"/*.dmg "$ASSETS"/*.exe
+  "$ASSETS"/*.dmg "$ASSETS"/*.exe "$ASSETS/latest.json"
 
 echo "✓ Pubblicata: $(gh release view "$TAG" --json url -q .url)"
