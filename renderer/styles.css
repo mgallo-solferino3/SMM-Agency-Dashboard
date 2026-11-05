@@ -277,3 +277,4 @@ input[type=color] { width: 44px; height: 30px; border: 1px solid var(--line); bo
 .icon-choice:hover { background: rgba(127,127,127,.1); }
 .icon-choice.active { border-color: var(--accent); background: var(--accent-soft); }
 .icon-choice img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.update-text a { color: var(--accent); }

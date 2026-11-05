@@ -1265,17 +1265,43 @@ function renderSettings(view) {
 
 // ---------- Aggiornamenti ----------
 // I controlli periodici li fa il processo principale, che avvisa con 'update:available'
+let updateInstalling = false;
+let shownUpdateVersion = null;
+
 function showUpdate(u) {
   const box = $('#update');
-  if (!u) { box.hidden = true; return; }
+  if (updateInstalling) return; // i controlli periodici non devono azzerare l'avanzamento
+  if (!u) { box.hidden = true; shownUpdateVersion = null; return; }
+  if (u.version === shownUpdateVersion) return;
+  shownUpdateVersion = u.version;
+  const text = h('div', { class: 'update-text' }, 'Si installa da sola e l\'app si riapre: i tuoi dati restano.');
+  const installBtn = h('button', { class: 'primary small', onclick: async () => {
+    updateInstalling = true;
+    installBtn.disabled = true;
+    text.textContent = 'Download in corso…';
+    await window.api.save(state); // salva subito le modifiche in sospeso: l'app sta per chiudersi
+    const res = await window.api.installUpdate();
+    if (res.ok) { text.textContent = 'Riavvio in corso…'; return; }
+    updateInstalling = false;
+    installBtn.disabled = false;
+    text.replaceChildren(`Installazione automatica non riuscita (${res.error}). `,
+      h('a', { href: '#', onclick: (e) => { e.preventDefault(); window.api.openExternal(u.downloadUrl); } }, 'Scarica a mano'));
+  } }, 'Installa e riavvia');
   box.replaceChildren(
     h('div', { class: 'update-title' }, `Nuova versione ${u.version}`),
-    h('div', { class: 'update-text' }, 'Scarica e installa sopra quella attuale: i tuoi dati restano.'),
+    text,
     h('div', { class: 'update-actions' },
-      h('button', { class: 'primary small', onclick: () => { window.api.openExternal(u.downloadUrl); toast('Download avviato nel browser'); } }, 'Scarica'),
+      installBtn,
       h('button', { class: 'ghost small', onclick: () => window.api.openExternal(u.notesUrl) }, 'Novità')),
   );
   box.hidden = false;
+  updateStatusEl = text;
+}
+
+let updateStatusEl = null;
+function showUpdateProgress(p) {
+  if (!updateInstalling || !updateStatusEl) return;
+  updateStatusEl.textContent = p === 'install' ? 'Installazione…' : p >= 0 ? `Download… ${p}%` : 'Download in corso…';
 }
 
 // ---------- Boot ----------
@@ -1337,6 +1363,7 @@ async function boot() {
   });
   render();
   window.api.onUpdate(showUpdate);
+  window.api.onUpdateProgress(showUpdateProgress);
   window.api.checkUpdate().then(showUpdate);
 }
 boot();

@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, screen, nativeIma
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL, fileURLToPath } = require('url');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 
 const IS_MAC = process.platform === 'darwin';
 const IS_WIN = process.platform === 'win32';
@@ -36,6 +36,11 @@ function findChromeProfileDir(profileName) {
 
 const DATA_FILE = () => path.join(app.getPath('userData'), 'dashboard-data.json');
 let win;
+
+// Una sola copia aperta: due istanze scriverebbero sullo stesso file dei dati.
+// La seconda passa la sua versione alla prima e si chiude.
+const isPrimaryInstance = app.requestSingleInstanceLock({ version: app.getVersion(), execPath: process.execPath });
+if (!isPrimaryInstance) app.exit(0);
 
 const ICON_PATH = path.join(__dirname, 'build', 'icon.png');
 
@@ -533,7 +538,133 @@ function checkForUpdateIfStale() {
 
 ipcMain.handle('update:check', () => checkForUpdate());
 
+// ---- "Installa e riavvia": scarica l'installer, chiude l'app e la sostituisce ----
+// Su Mac la sostituzione la fa uno script che parte solo dopo la chiusura dell'app:
+// sostituire i file di un'app in esecuzione la blocca ("non risponde").
+const MAC_INSTALL_SCRIPT = `#!/bin/bash
+# Argomenti: pid dell'app, nuova app, app da sostituire, cartella temporanea
+PID="$1"; SRC="$2"; DEST="$3"; TMP="$4"
+for i in $(seq 1 100); do kill -0 "$PID" 2>/dev/null || break; sleep 0.2; done
+kill -9 "$PID" 2>/dev/null
+BACKUP="$TMP/precedente.app"
+if [ -e "$DEST" ] && ! mv "$DEST" "$BACKUP"; then open "$DEST"; exit 1; fi
+if ditto "$SRC" "$DEST"; then
+  xattr -cr "$DEST"
+else
+  rm -rf "$DEST"
+  [ -e "$BACKUP" ] && mv "$BACKUP" "$DEST"
+fi
+open "$DEST"
+sleep 10
+rm -rf "$TMP"
+`;
+
+let installingUpdate = false;
+
+const run = (cmd, args) => new Promise((resolve, reject) => {
+  execFile(cmd, args, (err, stdout, stderr) => (err ? reject(new Error(stderr.trim() || err.message)) : resolve(stdout)));
+});
+
+async function downloadTo(url, file, onProgress) {
+  const res = await net.fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`Download non riuscito (errore ${res.status})`);
+  const total = Number(res.headers.get('content-length')) || 0;
+  const out = fs.createWriteStream(file);
+  const reader = res.body.getReader();
+  let received = 0;
+  let lastPct = -1;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.length;
+      if (!out.write(Buffer.from(value))) await new Promise((r) => out.once('drain', r));
+      const pct = total ? Math.floor((received / total) * 100) : -1;
+      if (pct !== lastPct) { lastPct = pct; onProgress(pct); }
+    }
+  } finally {
+    await new Promise((resolve, reject) => { out.on('error', reject); out.end(resolve); });
+  }
+  if (total && received !== total) throw new Error('Download incompleto, riprova');
+}
+
+// L'app da sostituire. Se è aperta dal .dmg o da una copia "traslocata" da Gatekeeper si installa in Applicazioni.
+function macInstallTarget() {
+  const bundle = path.resolve(process.execPath, '..', '..', '..');
+  if (bundle.startsWith('/Volumes/') || bundle.includes('/AppTranslocation/')) return path.join('/Applications', path.basename(bundle));
+  return bundle;
+}
+
+async function prepareMacInstall(dmg, dir) {
+  const target = macInstallTarget();
+  try {
+    fs.accessSync(path.dirname(target), fs.constants.W_OK);
+  } catch (_) {
+    throw new Error(`Non ho i permessi per scrivere in ${path.dirname(target)}`);
+  }
+  const mnt = path.join(dir, 'mnt');
+  fs.mkdirSync(mnt);
+  await run('hdiutil', ['attach', dmg, '-nobrowse', '-noautoopen', '-noverify', '-mountpoint', mnt]);
+  let staged;
+  try {
+    const appName = fs.readdirSync(mnt).find((n) => n.endsWith('.app'));
+    if (!appName) throw new Error('App non trovata nel file scaricato');
+    staged = path.join(dir, appName);
+    await run('ditto', [path.join(mnt, appName), staged]);
+  } finally {
+    await run('hdiutil', ['detach', mnt, '-force']).catch(() => {});
+  }
+  const script = path.join(dir, 'installa.sh');
+  fs.writeFileSync(script, MAC_INSTALL_SCRIPT, { mode: 0o755 });
+  return () => spawn('/bin/bash', [script, String(process.pid), staged, target, dir], { detached: true, stdio: 'ignore' }).unref();
+}
+
+ipcMain.handle('update:install', async (e) => {
+  const update = latestUpdate;
+  if (!update) return { ok: false, error: 'Nessun aggiornamento disponibile' };
+  if (!app.isPackaged) return { ok: false, error: 'L\'installazione automatica funziona solo nell\'app installata' };
+  if (!IS_MAC && !IS_WIN) return { ok: false, error: 'Installazione automatica non disponibile su questo sistema' };
+  if (installingUpdate) return { ok: false, error: 'Installazione già in corso' };
+  installingUpdate = true;
+  try {
+    const dir = fs.mkdtempSync(path.join(app.getPath('temp'), 'agency-dashboard-update-'));
+    const file = path.join(dir, path.basename(new URL(update.downloadUrl).pathname));
+    await downloadTo(update.downloadUrl, file, (pct) => e.sender.send('update:progress', pct));
+    e.sender.send('update:progress', 'install');
+    // Windows: installer NSIS per utente in modalità silenziosa; --force-run riapre l'app a fine installazione
+    const launch = IS_MAC
+      ? await prepareMacInstall(file, dir)
+      : () => spawn(file, ['/S', '--force-run'], { detached: true, stdio: 'ignore' }).unref();
+    launch();
+    setTimeout(() => {
+      app.quit();
+      setTimeout(() => app.exit(0), 5000); // se qualcosa trattiene la chiusura
+    }, 300);
+    return { ok: true };
+  } catch (err) {
+    installingUpdate = false;
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
+// Aperta una seconda volta: si riporta in primo piano questa finestra. Se la nuova copia è una
+// versione più recente (es. appena trascinata in Applicazioni), questa si chiude e le lascia il posto.
+app.on('second-instance', (_e, _argv, _cwd, data) => {
+  const newer = data && typeof data.version === 'string' && /^\d+\.\d+\.\d+$/.test(data.version)
+    && isNewerVersion(data.version, app.getVersion());
+  if (newer && IS_MAC && typeof data.execPath === 'string') {
+    const bundle = path.resolve(data.execPath, '..', '..', '..');
+    spawn('/bin/bash', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; open -n "$2"', 'riapri', String(process.pid), bundle],
+      { detached: true, stdio: 'ignore' }).unref();
+    app.quit();
+    return;
+  }
+  hideWidget();
+  restoreMainWindow();
+});
+
 app.whenReady().then(() => {
+  if (!isPrimaryInstance) return;
   const settings = readSettings();
   if (THEME_SOURCES.includes(settings.theme)) nativeTheme.themeSource = settings.theme;
   applyIcon(settings.iconData);
