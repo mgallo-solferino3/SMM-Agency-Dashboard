@@ -391,8 +391,13 @@ const SETTINGS_PAGE = { id: 'settings', label: 'Impostazioni', icon: '⚙' };
 const EDITABLE = new Set(['tools', 'idee', 'snippets', 'appunti', 'palette']);
 
 const currentProfile = () => PROFILES.find((p) => p.id === state.settings.profile) || PROFILES[0];
-const profilePages = () => currentProfile().pages.map((id) => ({ id, ...PROFILE_PAGES[id] }));
-const visiblePages = () => [...COMMON_PAGES, ...profilePages(), SETTINGS_PAGE];
+const pageMeta = (id) => ({ id, ...PROFILE_PAGES[id] });
+const profilePages = () => currentProfile().pages.map(pageMeta);
+// Strumenti di altri profili attivati con la spunta nelle impostazioni (nell'ordine di PROFILE_PAGES)
+const extraPages = () => Object.keys(PROFILE_PAGES)
+  .filter((id) => state.settings.extraPages.includes(id) && !currentProfile().pages.includes(id)).map(pageMeta);
+const toolPageIds = () => [...profilePages(), ...extraPages()].map((p) => p.id);
+const visiblePages = () => [...COMMON_PAGES, ...profilePages(), ...extraPages(), SETTINGS_PAGE];
 
 function navItem(p, extraClass = '') {
   return h('button', { class: `nav-item${p.id === page ? ' active' : ''}${extraClass}`, onclick: () => go(p.id) },
@@ -406,6 +411,8 @@ function renderNav() {
     ...COMMON_PAGES.map((p) => navItem(p)),
     h('div', { class: 'nav-section' }, currentProfile().label),
     ...profilePages().map((p) => navItem(p)),
+    ...(extraPages().length ? [h('div', { class: 'nav-section' }, 'Altri strumenti')] : []),
+    ...extraPages().map((p) => navItem(p)),
     navItem(SETTINGS_PAGE, ' nav-bottom'));
 }
 
@@ -503,7 +510,7 @@ function renderHomeBody() {
     return;
   }
 
-  const datedPages = currentProfile().pages.filter((id) => RECORD_TYPES[id]?.upcoming);
+  const datedPages = toolPageIds().filter((id) => RECORD_TYPES[id]?.upcoming);
   if (datedPages.length) {
     const next = upcomingRecords(datedPages);
     body.append(h('div', { class: 'section-title' }, 'In programma'));
@@ -1220,6 +1227,26 @@ function renderSettings(view) {
     h('div', { class: 'hint' }, `Le sezioni ${COMMON_PAGES.map((p) => p.label).join(', ')} ci sono per tutti i profili. `
       + 'Cambiando profilo i dati delle altre sezioni restano salvati.'));
 
+  // Strumenti: quelli del profilo sono sempre attivi, quelli degli altri profili si aggiungono con la spunta
+  const toggleExtra = (id, on) => set({ extraPages: on ? [...s.extraPages, id] : s.extraPages.filter((x) => x !== id) });
+  view.append(
+    h('div', { class: 'section-title' }, 'Strumenti'),
+    h('div', { class: 'tool-groups' }, PROFILES.map((p) => {
+      const own = p.id === s.profile;
+      return h('div', { class: 'card tool-group' + (own ? ' own' : '') },
+        h('div', { class: 'tool-group-title' }, h('span', null, p.icon), p.label, own && h('span', { class: 'tool-group-tag' }, 'Il tuo profilo')),
+        p.pages.map((id) => {
+          const included = currentProfile().pages.includes(id);
+          return h('label', { class: 'tool-toggle' + (included ? ' included' : '') },
+            h('input', { type: 'checkbox', checked: included || s.extraPages.includes(id), disabled: included,
+              onchange: (e) => toggleExtra(id, e.target.checked) }),
+            h('span', { class: 'nav-icon' }, PROFILE_PAGES[id].icon),
+            h('span', null, PROFILE_PAGES[id].label),
+            included && !own && h('span', { class: 'tool-note' }, 'già nel tuo profilo'));
+        }));
+    })),
+    h('div', { class: 'hint' }, 'Gli strumenti spuntati compaiono nel menu sotto "Altri strumenti". Togliendo la spunta i dati restano salvati.'));
+
   view.append(
     h('div', { class: 'section-title' }, 'Tema'),
     h('div', { class: 'segmented' }, THEMES.map(([id, label]) =>
@@ -1330,6 +1357,7 @@ function normalizeSettings(s) {
     theme: pick(s.theme, THEMES.map(([id]) => id), 'system'),
     palette: pick(s.palette, PALETTES.map((p) => p.id), 'rosa'),
     accent: /^#[0-9a-f]{6}$/i.test(s.accent) ? s.accent : '',
+    extraPages: Array.isArray(s.extraPages) ? [...new Set(s.extraPages.filter((id) => PROFILE_PAGES[id]))] : [],
     iconId: typeof s.iconId === 'string' ? s.iconId : 'rosa',
     iconData: typeof s.iconData === 'string' && s.iconData.startsWith('data:image/') ? s.iconData : '',
   };

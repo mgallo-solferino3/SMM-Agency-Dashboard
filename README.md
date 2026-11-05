@@ -78,6 +78,8 @@ Le sezioni qui sopra ci sono per tutti. Il profilo scelto nelle Impostazioni agg
 | Commerciale | Lead, Preventivi |
 | Project Manager | Progetti, Scadenze |
 
+Nelle Impostazioni, sotto **Strumenti**, si possono attivare con una spunta anche gli strumenti degli altri profili (es. un Social Media Manager può aggiungere Palette colori e Font): compaiono nel menu sotto **Altri strumenti**.
+
 Le schede con una data compaiono in Home sotto **In programma**. Un clic sullo stato di una scheda la fa passare allo stato successivo. Cambiando profilo i dati delle altre sezioni restano salvati.
 
 Quando riduci a icona la finestra compare un piccolo **widget flottante** con l'icona dell'app: un clic riapre la dashboard, trascinandolo lo sposti (la posizione viene ricordata).

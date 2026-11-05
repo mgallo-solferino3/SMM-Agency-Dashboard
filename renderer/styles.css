@@ -278,3 +278,12 @@ input[type=color] { width: 44px; height: 30px; border: 1px solid var(--line); bo
 .icon-choice.active { border-color: var(--accent); background: var(--accent-soft); }
 .icon-choice img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .update-text a { color: var(--accent); }
+.tool-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.tool-group { margin-bottom: 0; padding: 12px 14px; }
+.tool-group.own { border-color: var(--accent); }
+.tool-group-title { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 6px; }
+.tool-group-tag { margin-left: auto; white-space: nowrap; flex: none; font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 2px 8px; }
+.tool-toggle { display: flex; align-items: center; gap: 8px; padding: 6px 0; cursor: pointer; }
+.tool-toggle input { width: 16px; height: 16px; accent-color: var(--accent); margin: 0; }
+.tool-toggle.included { cursor: default; color: var(--muted); }
+.tool-note { margin-left: auto; font-size: 11px; color: var(--muted); }
