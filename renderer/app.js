@@ -1339,6 +1339,10 @@ function renderPixieset(view) {
 
 // ---------- Aspetto ----------
 const PALETTES = [
+  // Predefinita: colore principale Solferino 3 #6295A5
+  { id: 'solferino', label: 'Solferino 3',
+    light: { bg: '#f1f6f7', panel: '#ffffff', sidebar: '#e2ecef', line: '#d3e1e5', accent: '#6295a5' },
+    dark: { bg: '#141b1d', panel: '#1e272a', sidebar: '#192124', line: '#2e3b3f', accent: '#6295a5' } },
   { id: 'rosa', label: 'Rosa',
     light: { bg: '#fcf2f5', panel: '#ffffff', sidebar: '#f7e3e9', line: '#eed6dd', accent: '#2f5bea' },
     dark: { bg: '#1c1719', panel: '#282224', sidebar: '#241c1f', line: '#3e3337', accent: '#7b9bff' } },
@@ -1472,7 +1476,7 @@ function renderSettings(view) {
       h('button', { class: id === s.theme ? 'active' : '', onclick: () => set({ theme: id }) }, label))),
     h('div', { class: 'section-title' }, 'Colori'),
     h('div', { class: 'swatch-row' }, PALETTES.map((p) =>
-      h('button', { class: 'palette-swatch' + (p.id === s.palette ? ' active' : ''), onclick: () => set({ palette: p.id }) },
+      h('button', { class: 'palette-swatch' + (p.id === s.palette ? ' active' : ''), onclick: () => set({ palette: p.id, paletteChosen: true }) },
         h('div', { class: 'sw' }, h('span', { style: `background:${p.light.sidebar}` }),
           h('span', { style: `background:${p.dark.panel}` }), h('span', { style: `background:${p.light.accent}` })),
         p.label))),
@@ -1576,7 +1580,9 @@ function normalizeSettings(s) {
   return {
     profile: pick(s.profile, PROFILES.map((p) => p.id), 'smm'),
     theme: pick(s.theme, THEMES.map(([id]) => id), 'system'),
-    palette: pick(s.palette, PALETTES.map((p) => p.id), 'rosa'),
+    // Fino alla 1.4 la predefinita era Rosa: chi non ha mai scelto una palette passa a quella Solferino 3
+    palette: pick(s.palette === 'rosa' && !s.paletteChosen ? 'solferino' : s.palette, PALETTES.map((p) => p.id), 'solferino'),
+    paletteChosen: !!s.paletteChosen,
     accent: /^#[0-9a-f]{6}$/i.test(s.accent) ? s.accent : '',
     extraPages: Array.isArray(s.extraPages) ? [...new Set(s.extraPages.filter((id) => PROFILE_PAGES[id]))] : [],
     iconId: typeof s.iconId === 'string' ? s.iconId : 'rosa',

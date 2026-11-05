@@ -66,7 +66,7 @@ L'app si può aprire una sola volta: aprendola di nuovo torna in primo piano la 
 - **Clienti**: un blocco per cliente con i suoi link (sito, admin, Analytics, ecc.).
 - **Strumenti**: link dell'agenzia raggruppati per categoria.
 - **To-do**, **Note** (salvataggio automatico), **Appunti**, **Snippet** copiabili con un clic.
-- **Impostazioni**: profilo, tema (automatico, chiaro, scuro), palette di colori, colore principale e icona dell'app (varianti di colore o immagine propria).
+- **Impostazioni**: profilo, tema (automatico, chiaro, scuro), palette di colori (predefinita "Solferino 3", colore #6295A5), colore principale e icona dell'app (varianti di colore o immagine propria).
 
 ### Profili
 

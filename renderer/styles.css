@@ -1,26 +1,27 @@
 :root {
-  --bg: #fcf2f5; /* rosa tenue, dal colore dell'icona #ea638c */
+  /* Palette predefinita "Solferino 3" (colore principale #6295A5); i colori scelti nelle impostazioni li sostituiscono da JS */
+  --bg: #f1f6f7;
   --panel: #ffffff;
-  --sidebar: #f7e3e9;
+  --sidebar: #e2ecef;
   --text: #1d1d1b;
   --muted: #6e6d68;
-  --line: #eed6dd;
-  --accent: #2f5bea;
-  --accent-soft: #e6ecfd;
+  --line: #d3e1e5;
+  --accent: #6295a5;
+  --accent-soft: #e4eef1;
   --danger: #c93b3b;
   --radius: 12px;
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", "Helvetica Neue", sans-serif;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #1c1719;
-    --panel: #282224;
-    --sidebar: #241c1f;
+    --bg: #141b1d;
+    --panel: #1e272a;
+    --sidebar: #192124;
     --text: #efeeea;
     --muted: #9a9993;
-    --line: #3e3337;
-    --accent: #7b9bff;
-    --accent-soft: #28304f;
+    --line: #2e3b3f;
+    --accent: #6295a5;
+    --accent-soft: #2a3d43;
     --danger: #ff7a7a;
   }
 }
