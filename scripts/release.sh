@@ -13,7 +13,8 @@ case "$BUMP" in
 esac
 
 command -v gh >/dev/null || { echo "Serve GitHub CLI: brew install gh"; exit 1; }
-gh auth status >/dev/null 2>&1 || { echo "Esegui prima: gh auth login"; exit 1; }
+# Verifica solo l'account attivo (gh auth status fallisce se un altro account ha il token scaduto)
+gh api user >/dev/null 2>&1 || { echo "Esegui prima: gh auth login"; exit 1; }
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 [ "$BRANCH" = "main" ] || { echo "Sei sul branch '$BRANCH': passa a main per pubblicare"; exit 1; }
