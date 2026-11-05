@@ -496,7 +496,7 @@ ipcMain.handle('pixieset:cover', async (_e, { id, url }) => {
 // ---- Foglio Google come CSV: serve la condivisione "Chiunque abbia il link può visualizzare" ----
 function sheetCsvUrl(input) {
   const u = new URL(String(input).trim());
-  if (u.hostname !== 'docs.google.com') throw new Error('Il link deve essere di un foglio Google (docs.google.com)');
+  if (u.hostname !== 'docs.google.com') throw new Error('Il link deve essere di un foglio Google o dello script Google (script.google.com/…/exec)');
   // Foglio "pubblicato sul web": …/d/e/<id>/pubhtml → …/pub?output=csv
   const published = u.pathname.match(/^\/spreadsheets\/d\/e\/([\w-]+)/);
   if (published) {
@@ -509,8 +509,25 @@ function sheetCsvUrl(input) {
   return `https://docs.google.com/spreadsheets/d/${id[1]}/export?format=csv${gid ? `&gid=${gid}` : ''}`;
 }
 
-ipcMain.handle('sheet:fetch', async (_e, url) => {
+// Script Google Apps pubblicato come app web (scripts/pixieset-sheet.gs): il foglio resta privato
+const isAppsScriptUrl = (u) => u.hostname === 'script.google.com' && /^\/macros\/s\/[\w-]+\/exec$/.test(u.pathname);
+
+async function fetchAppsScript(u, key) {
+  u.searchParams.set('key', String(key || ''));
+  const res = await net.fetch(u.toString(), { cache: 'no-store' });
+  const type = res.headers.get('content-type') || '';
+  if (!res.ok || !type.includes('application/json')) {
+    return { error: 'Script non raggiungibile: in "Chi ha accesso" deve essere impostato "Chiunque"' };
+  }
+  const data = await res.json();
+  if (data.error) return { error: `Script Google: ${data.error}` };
+  return Array.isArray(data.rows) ? { rows: data.rows } : { error: 'Risposta dello script non valida' };
+}
+
+ipcMain.handle('sheet:fetch', async (_e, { url, key } = {}) => {
   try {
+    const u = new URL(String(url).trim());
+    if (isAppsScriptUrl(u)) return await fetchAppsScript(u, key);
     const res = await net.fetch(sheetCsvUrl(url), { cache: 'no-store' });
     const type = res.headers.get('content-type') || '';
     if (!res.ok || !type.includes('text/csv')) {

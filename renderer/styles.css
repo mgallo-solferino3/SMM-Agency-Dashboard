@@ -306,3 +306,6 @@ button.icon .fa-icon { width: 12px; height: 12px; vertical-align: -1px; }
 .sheet-status.error { color: var(--danger); }
 button .fa-icon { vertical-align: -0.125em; }
 @media (prefers-color-scheme: dark) { .sheet-badge { color: #5fd19b; } }
+.gallery-search { margin-bottom: 14px; }
+.gallery-search input { font-size: 14px; padding: 10px 12px 10px 40px; }
+.gallery-sub { color: var(--text); opacity: .75; }

@@ -80,7 +80,14 @@ Le sezioni qui sopra ci sono per tutti. Il profilo scelto nelle Impostazioni agg
 
 Nelle Impostazioni, sotto **Strumenti**, si possono attivare con una spunta anche gli strumenti degli altri profili (es. un Social Media Manager può aggiungere Palette colori e Font): compaiono nel menu sotto **Altri strumenti**.
 
-**Pixieset**: elenco delle gallerie con nome, link e copertina. La copertina viene ricavata dalla galleria (immagine di anteprima, altrimenti uno screenshot). L'elenco può arrivare da un **foglio Google**: condividilo come *Chiunque abbia il link può visualizzare*, premi **Collega foglio Google** e incolla il link. Colonne: **Nome**, **Link** e, facoltativa, **Copertina** (URL di un'immagine). L'app rilegge il foglio quando apri la sezione (al massimo ogni 10 minuti) o con **Aggiorna dal foglio**; le gallerie del foglio si modificano nel foglio, quelle aggiunte a mano nell'app.
+**Pixieset**: elenco delle gallerie con cliente, titolo, data, copertina e pulsanti per copiare link e password. La copertina viene ricavata dalla galleria (immagine di anteprima, altrimenti uno screenshot). In alto c'è la ricerca per cliente, galleria o data.
+
+L'elenco può arrivare da un **foglio Google** (colonne riconosciute: Cliente/Nome, Link, Password, Data, Note, Copertina). Due modi:
+
+- **Foglio privato (consigliato, obbligatorio se contiene password)**: nel foglio *Estensioni → Apps Script*, incolla [`scripts/pixieset-sheet.gs`](scripts/pixieset-sheet.gs), scrivi una chiave segreta in `KEY` e l'id della scheda in `SHEET_GID`, poi *Distribuisci → Nuova distribuzione → App web* con *Esegui come: Me* e *Chi ha accesso: Chiunque*. Nell'app premi **Collega foglio Google** e incolla l'URL `…/exec` e la chiave. Il foglio resta privato e lo script legge anche i link nascosti dietro un testo.
+- **Foglio senza dati riservati**: condividilo come *Chiunque abbia il link può visualizzare* e incolla direttamente il link del foglio (in questo caso i testi con un link collegato vengono persi).
+
+L'app rilegge il foglio quando apri la sezione (al massimo ogni 10 minuti) o con **Aggiorna dal foglio**; le gallerie del foglio si modificano nel foglio, quelle aggiunte a mano nell'app.
 
 Le schede con una data compaiono in Home sotto **In programma**. Un clic sullo stato di una scheda la fa passare allo stato successivo. Cambiando profilo i dati delle altre sezioni restano salvati.
 
