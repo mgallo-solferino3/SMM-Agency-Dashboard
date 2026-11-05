@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, screen, nativeImage, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, screen, nativeImage, nativeTheme, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL, fileURLToPath } = require('url');
@@ -405,6 +405,37 @@ ipcMain.handle('data:import', async () => {
     return JSON.parse(fs.readFileSync(filePaths[0], 'utf8'));
   } catch (_) {
     return { __error: 'File non valido' };
+  }
+});
+
+// ---- Aggiornamenti: confronta la versione installata con l'ultima GitHub Release ----
+const LATEST_RELEASE_API = 'https://api.github.com/repos/mgallo-solferino3/SMM-Agency-Dashboard/releases/latest';
+
+function isNewerVersion(candidate, current) {
+  const a = candidate.split('.').map(Number);
+  const b = current.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  }
+  return false;
+}
+
+ipcMain.handle('update:check', async () => {
+  try {
+    const res = await net.fetch(LATEST_RELEASE_API, { headers: { Accept: 'application/vnd.github+json' } });
+    if (!res.ok) return null;
+    const release = await res.json();
+    const version = String(release.tag_name || '').replace(/^v/, '');
+    if (!/^\d+\.\d+\.\d+$/.test(version) || !isNewerVersion(version, app.getVersion())) return null;
+    const ext = IS_WIN ? '.exe' : '.dmg';
+    const asset = (release.assets || []).find((a) => a.name.endsWith(ext));
+    return {
+      version,
+      downloadUrl: asset ? asset.browser_download_url : release.html_url,
+      notesUrl: release.html_url,
+    };
+  } catch (_) {
+    return null; // offline o GitHub non raggiungibile: si riprova al prossimo controllo
   }
 });
 

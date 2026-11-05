@@ -11,4 +11,5 @@ contextBridge.exposeInMainWorld('api', {
   captureSite: (id, url) => ipcRenderer.invoke('sites:capture', { id, url }),
   listApps: () => ipcRenderer.invoke('apps:list'),
   appIcon: (appPath) => ipcRenderer.invoke('apps:icon', appPath),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
 });

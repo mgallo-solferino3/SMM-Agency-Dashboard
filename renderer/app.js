@@ -794,6 +794,23 @@ function renderSnippets(view) {
   }
 }
 
+// ---------- Aggiornamenti ----------
+const UPDATE_CHECK_EVERY = 6 * 60 * 60 * 1000;
+
+async function checkUpdate() {
+  const box = $('#update');
+  const u = await window.api.checkUpdate();
+  if (!u) { box.hidden = true; return; }
+  box.replaceChildren(
+    h('div', { class: 'update-title' }, `Nuova versione ${u.version}`),
+    h('div', { class: 'update-text' }, 'Scarica e installa sopra quella attuale: i tuoi dati restano.'),
+    h('div', { class: 'update-actions' },
+      h('button', { class: 'primary small', onclick: () => { window.api.openExternal(u.downloadUrl); toast('Download avviato nel browser'); } }, 'Scarica'),
+      h('button', { class: 'ghost small', onclick: () => window.api.openExternal(u.notesUrl) }, 'Novità')),
+  );
+  box.hidden = false;
+}
+
 // ---------- Boot ----------
 function normalizeState(d) {
   d = d && typeof d === 'object' ? d : {};
@@ -833,5 +850,7 @@ async function boot() {
     }
   });
   render();
+  checkUpdate();
+  setInterval(checkUpdate, UPDATE_CHECK_EVERY);
 }
 boot();
