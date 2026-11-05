@@ -30,6 +30,16 @@ Si può lanciare anche dal Mac. Il file `Agency Dashboard SMM Setup 1.0.0.exe` c
 
 Su Windows la tendina "App di Windows" negli strumenti elenca i collegamenti del menu Start.
 
+## Pubblicare una nuova versione
+
+```bash
+npm run release            # 1.0.0 → 1.0.1
+npm run release -- minor   # 1.0.0 → 1.1.0
+npm run release -- major   # 1.0.0 → 2.0.0
+```
+
+Lo script aumenta la versione, crea `.dmg` ed `.exe`, aggiorna l'app in `/Applications`, fa commit, tag e push su GitHub e pubblica una Release con i due installer. Serve [GitHub CLI](https://cli.github.com) autenticata (`gh auth login`) e il branch `main`.
+
 ## Cosa contiene
 
 - **Home**: ricerca globale (⌘K su Mac, Ctrl+K su Windows) su strumenti e link dei clienti, scorciatoie, to-do aperti.
