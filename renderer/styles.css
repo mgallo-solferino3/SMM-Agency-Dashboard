@@ -309,3 +309,4 @@ button .fa-icon { vertical-align: -0.125em; }
 .gallery-search { margin-bottom: 14px; }
 .gallery-search input { font-size: 14px; padding: 10px 12px 10px 40px; }
 .gallery-sub { color: var(--text); opacity: .75; }
+.gallery-card .site-actions .ghost { display: inline-flex; align-items: center; justify-content: center; gap: 2px; white-space: nowrap; min-width: 0; }

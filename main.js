@@ -533,7 +533,7 @@ ipcMain.handle('sheet:fetch', async (_e, { url, key } = {}) => {
     const res = await net.fetch(sheetCsvUrl(url), { cache: 'no-store' });
     const type = res.headers.get('content-type') || '';
     if (!res.ok || !type.includes('text/csv')) {
-      return { error: 'Foglio non leggibile: condividilo come "Chiunque abbia il link può visualizzare"' };
+      return { error: 'Il foglio è privato: collegalo tramite lo script Google (indirizzo …/exec e chiave), vedi README' };
     }
     return { csv: await res.text() };
   } catch (err) {
