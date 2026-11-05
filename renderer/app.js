@@ -182,7 +182,11 @@ function openForm({ title, fields, submitLabel = 'Salva', onSubmit }) {
     }
     if (f.type === 'textarea') input = h('textarea', { value: f.value || '', placeholder: f.placeholder || '', rows: f.rows || 5 });
     else if (f.type === 'select') {
-      input = h('select', null, f.options.map((o) => h('option', { value: o.value, selected: o.value === f.value }, o.label)));
+      const opts = f.options.map((o) => (typeof o === 'string' ? { value: o, label: o } : o));
+      if (f.empty) opts.unshift({ value: '', label: '—' });
+      input = h('select', null, opts.map((o) => h('option', { value: o.value, selected: o.value === f.value }, o.label)));
+    } else if (f.type === 'date' || f.type === 'number') {
+      input = h('input', { type: f.type, value: f.value ?? '', step: f.type === 'number' ? 'any' : null });
     } else if (f.type === 'icon') {
       const icon = iconInput(f.value, f.placeholder);
       inputs[f.name] = icon.input;
@@ -210,7 +214,7 @@ function openForm({ title, fields, submitLabel = 'Salva', onSubmit }) {
 
 // --- Campo icona: emoji/URL oppure immagine caricata dal disco (salvata come data URL)
 const ICON_SIZE = 64;
-function imageFileToDataUrl(file) {
+function imageFileToDataUrl(file, size = ICON_SIZE) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(reader.error);
@@ -220,10 +224,10 @@ function imageFileToDataUrl(file) {
       img.onload = () => {
         // Ridimensiona (contain) per non appesantire il file dei dati
         const canvas = document.createElement('canvas');
-        canvas.width = canvas.height = ICON_SIZE;
-        const scale = Math.min(ICON_SIZE / (img.width || ICON_SIZE), ICON_SIZE / (img.height || ICON_SIZE));
-        const w = (img.width || ICON_SIZE) * scale, hgt = (img.height || ICON_SIZE) * scale;
-        canvas.getContext('2d').drawImage(img, (ICON_SIZE - w) / 2, (ICON_SIZE - hgt) / 2, w, hgt);
+        canvas.width = canvas.height = size;
+        const scale = Math.min(size / (img.width || size), size / (img.height || size));
+        const w = (img.width || size) * scale, hgt = (img.height || size) * scale;
+        canvas.getContext('2d').drawImage(img, (size - w) / 2, (size - hgt) / 2, w, hgt);
         resolve(canvas.toDataURL('image/png'));
       };
       img.src = reader.result;
@@ -337,17 +341,7 @@ function defaultSites() {
 }
 
 function seedData() {
-  return {
-    version: 1,
-    libraries: [],
-    ideaLinks: [],
-    sites: defaultSites(),
-    tools: [],
-    todos: [],
-    notes: '',
-    appunti: [],
-    snippets: [],
-  };
+  return normalizeState({ sites: defaultSites() });
 }
 
 let state;
@@ -364,27 +358,55 @@ function save() {
 }
 
 // ---------- Pages ----------
-const PAGES = [
+// Sezioni comuni a tutti i profili
+const COMMON_PAGES = [
   { id: 'home', label: 'Home', icon: '⌂' },
-  { id: 'tools', label: 'Strumenti', icon: '⚙' },
+  { id: 'tools', label: 'Strumenti', icon: '⚒' },
   { id: 'idee', label: 'Idee', icon: '✦' },
   { id: 'todos', label: 'To-do', icon: '✓' },
   { id: 'notes', label: 'Note', icon: '✎' },
   { id: 'appunti', label: 'Appunti', icon: '🗒' },
-  { id: 'utm', label: 'Generatore UTM', icon: '⛓' },
   { id: 'snippets', label: 'Snippet', icon: '❝' },
 ];
-const EDITABLE = new Set(['tools', 'idee', 'snippets', 'appunti']);
+// Sezioni aggiunte dal profilo scelto nelle impostazioni
+const PROFILE_PAGES = {
+  utm: { label: 'Generatore UTM', icon: '⛓' },
+  calendario: { label: 'Calendario editoriale', icon: '▤' },
+  palette: { label: 'Palette colori', icon: '◐' },
+  font: { label: 'Font', icon: 'Aa' },
+  shooting: { label: 'Shooting', icon: '◉' },
+  lead: { label: 'Lead', icon: '☏' },
+  preventivi: { label: 'Preventivi', icon: '€' },
+  progetti: { label: 'Progetti', icon: '▦' },
+  scadenze: { label: 'Scadenze', icon: '⏱' },
+};
+const PROFILES = [
+  { id: 'smm', label: 'Social Media Manager', icon: '📱', pages: ['utm', 'calendario'] },
+  { id: 'grafico', label: 'Grafico', icon: '🎨', pages: ['palette', 'font'] },
+  { id: 'fotografo', label: 'Fotografo', icon: '📷', pages: ['shooting'] },
+  { id: 'commerciale', label: 'Commerciale', icon: '💼', pages: ['lead', 'preventivi'] },
+  { id: 'pm', label: 'Project Manager', icon: '📋', pages: ['progetti', 'scadenze'] },
+];
+const SETTINGS_PAGE = { id: 'settings', label: 'Impostazioni', icon: '⚙' };
+const EDITABLE = new Set(['tools', 'idee', 'snippets', 'appunti', 'palette']);
+
+const currentProfile = () => PROFILES.find((p) => p.id === state.settings.profile) || PROFILES[0];
+const profilePages = () => currentProfile().pages.map((id) => ({ id, ...PROFILE_PAGES[id] }));
+const visiblePages = () => [...COMMON_PAGES, ...profilePages(), SETTINGS_PAGE];
+
+function navItem(p, extraClass = '') {
+  return h('button', { class: `nav-item${p.id === page ? ' active' : ''}${extraClass}`, onclick: () => go(p.id) },
+    h('span', { class: 'nav-icon' }, p.icon), p.label);
+}
 
 function renderNav() {
   const nav = $('#nav');
   nav.innerHTML = '';
-  for (const p of PAGES) {
-    nav.append(
-      h('button', { class: 'nav-item' + (p.id === page ? ' active' : ''), onclick: () => go(p.id) },
-        h('span', { class: 'nav-icon' }, p.icon), p.label)
-    );
-  }
+  nav.append(
+    ...COMMON_PAGES.map((p) => navItem(p)),
+    h('div', { class: 'nav-section' }, currentProfile().label),
+    ...profilePages().map((p) => navItem(p)),
+    navItem(SETTINGS_PAGE, ' nav-bottom'));
 }
 
 function go(id) {
@@ -396,18 +418,22 @@ function go(id) {
 }
 
 function render() {
+  // Cambiando profilo la sezione aperta potrebbe non esserci più
+  let meta = visiblePages().find((p) => p.id === page);
+  if (!meta) { page = 'home'; meta = COMMON_PAGES[0]; }
   renderNav();
-  const meta = PAGES.find((p) => p.id === page);
   $('#page-title').textContent = page === 'home' ? greeting() : meta.label;
   const btn = $('#btn-edit');
-  btn.hidden = !EDITABLE.has(page);
+  btn.hidden = !EDITABLE.has(page) && !RECORD_TYPES[page];
   btn.classList.toggle('active', editing);
   btn.textContent = editing ? 'Fine' : 'Modifica';
   const view = $('#view');
   view.classList.toggle('editing', editing);
   view.innerHTML = '';
-  ({ home: renderHome, tools: renderTools, idee: renderIdee, todos: renderTodos,
-     notes: renderNotes, appunti: renderAppunti, utm: renderUtm, snippets: renderSnippets })[page](view);
+  const renderers = { home: renderHome, tools: renderTools, idee: renderIdee, todos: renderTodos,
+    notes: renderNotes, appunti: renderAppunti, utm: renderUtm, snippets: renderSnippets,
+    palette: renderPalette, settings: renderSettings };
+  (renderers[page] || ((v) => renderRecords(v, page)))(view);
 }
 
 function greeting() {
@@ -475,6 +501,15 @@ function renderHomeBody() {
       ? h('div', { class: 'grid' }, res.map((r) => linkTile(r.item, { sub: r.sub })))
       : h('div', { class: 'empty' }, 'Nessun risultato.'));
     return;
+  }
+
+  const datedPages = currentProfile().pages.filter((id) => RECORD_TYPES[id]?.upcoming);
+  if (datedPages.length) {
+    const next = upcomingRecords(datedPages);
+    body.append(h('div', { class: 'section-title' }, 'In programma'));
+    body.append(next.length
+      ? h('div', { class: 'card records' }, next.map(({ key, r }) => recordRow(key, r, { onOpen: () => go(key), showPage: true })))
+      : h('div', { class: 'empty' }, 'Niente in programma.'));
   }
 
   body.append(h('div', { class: 'section-title' }, 'Strumenti'));
@@ -794,6 +829,440 @@ function renderSnippets(view) {
   }
 }
 
+// ---------- Sezioni dei profili ----------
+// Ogni sezione è una lista di schede con campi propri. Gli stati sono in ordine:
+// un clic sullo stato passa al successivo; i toni 'done' e 'ko' indicano una scheda chiusa.
+const st = (label, tone) => ({ label, tone });
+const RECORD_TYPES = {
+  calendario: {
+    singular: 'contenuto', addLabel: 'Nuovo contenuto', empty: 'Nessun contenuto in calendario.',
+    titleField: 'title', dateField: 'date', groupBy: 'month', upcoming: true,
+    meta: ['channel', 'format', 'client'],
+    fields: [
+      { name: 'date', label: 'Data di pubblicazione', type: 'date', required: true },
+      { name: 'title', label: 'Titolo o tema', required: true, placeholder: 'Es. Lancio collezione autunno' },
+      { name: 'client', label: 'Cliente' },
+      { name: 'channel', label: 'Canale', type: 'select', options: ['Instagram', 'Facebook', 'TikTok', 'LinkedIn', 'YouTube', 'Newsletter', 'Altro'] },
+      { name: 'format', label: 'Formato', type: 'select', options: ['Post', 'Carosello', 'Reel', 'Story', 'Video', 'Articolo'] },
+      { name: 'status', label: 'Stato', type: 'status' },
+      { name: 'notes', label: 'Note', type: 'textarea' },
+    ],
+    statuses: [st('Idea', 'neutral'), st('In lavorazione', 'progress'), st('Programmato', 'info'), st('Pubblicato', 'done')],
+  },
+  font: {
+    singular: 'font', addLabel: 'Nuovo font', empty: 'Nessun font salvato.',
+    titleField: 'name', groupBy: 'category', urlField: 'url', meta: ['client'],
+    titleStyle: (r) => `font-family: "${r.name.replace(/["\\]/g, '')}", var(--font)`, // anteprima se il font è installato
+    fields: [
+      { name: 'name', label: 'Nome del font', required: true, placeholder: 'Es. Inter' },
+      { name: 'category', label: 'Categoria', type: 'select', options: ['Sans-serif', 'Serif', 'Display', 'Script', 'Monospace'] },
+      { name: 'url', label: 'Link (Google Fonts, Adobe Fonts, file…)', type: 'url', placeholder: 'https://…' },
+      { name: 'client', label: 'Cliente o progetto' },
+      { name: 'notes', label: 'Uso e abbinamenti', type: 'textarea' },
+    ],
+  },
+  shooting: {
+    singular: 'shooting', addLabel: 'Nuovo shooting', empty: 'Nessuno shooting.',
+    titleField: 'title', dateField: 'date', groupBy: 'month', upcoming: true,
+    meta: ['client', 'location', 'kind'],
+    fields: [
+      { name: 'date', label: 'Data', type: 'date', required: true },
+      { name: 'title', label: 'Titolo', required: true, placeholder: 'Es. Still life collezione autunno' },
+      { name: 'client', label: 'Cliente' },
+      { name: 'location', label: 'Location', placeholder: 'Es. Studio, esterno, indirizzo…' },
+      { name: 'kind', label: 'Tipo', type: 'select', options: ['Prodotto', 'Ritratto', 'Evento', 'Food', 'Moda', 'Architettura', 'Altro'] },
+      { name: 'status', label: 'Stato', type: 'status' },
+      { name: 'notes', label: 'Note (attrezzatura, shot list…)', type: 'textarea' },
+    ],
+    statuses: [st('Da organizzare', 'neutral'), st('Confermato', 'info'), st('Scattato', 'progress'),
+      st('In post-produzione', 'progress'), st('Consegnato', 'done')],
+  },
+  lead: {
+    singular: 'lead', addLabel: 'Nuovo lead', empty: 'Nessun lead.',
+    titleField: 'name', dateField: 'next', groupBy: 'status', amountField: 'value', upcoming: true,
+    meta: ['company', 'contact', 'source'],
+    fields: [
+      { name: 'name', label: 'Nome', required: true, placeholder: 'Es. Mario Rossi' },
+      { name: 'company', label: 'Azienda' },
+      { name: 'contact', label: 'Email o telefono' },
+      { name: 'source', label: 'Provenienza', type: 'select', options: ['Passaparola', 'Sito web', 'Social', 'Evento', 'Chiamata', 'Altro'] },
+      { name: 'value', label: 'Valore stimato (€)', type: 'number' },
+      { name: 'next', label: 'Prossimo contatto', type: 'date' },
+      { name: 'status', label: 'Stato', type: 'status' },
+      { name: 'notes', label: 'Note', type: 'textarea' },
+    ],
+    statuses: [st('Nuovo', 'neutral'), st('Contattato', 'info'), st('In trattativa', 'progress'), st('Vinto', 'done'), st('Perso', 'ko')],
+  },
+  preventivi: {
+    singular: 'preventivo', addLabel: 'Nuovo preventivo', empty: 'Nessun preventivo.',
+    titleField: 'title', dateField: 'date', groupBy: 'status', amountField: 'amount',
+    meta: ['client'],
+    fields: [
+      { name: 'date', label: 'Data', type: 'date', required: true },
+      { name: 'title', label: 'Oggetto', required: true, placeholder: 'Es. Gestione social 2027' },
+      { name: 'client', label: 'Cliente', required: true },
+      { name: 'amount', label: 'Importo (€)', type: 'number' },
+      { name: 'status', label: 'Stato', type: 'status' },
+      { name: 'notes', label: 'Note', type: 'textarea' },
+    ],
+    statuses: [st('Bozza', 'neutral'), st('Inviato', 'info'), st('Accettato', 'done'), st('Rifiutato', 'ko')],
+  },
+  progetti: {
+    singular: 'progetto', addLabel: 'Nuovo progetto', empty: 'Nessun progetto.',
+    titleField: 'name', dateField: 'deadline', groupBy: 'status', upcoming: true,
+    meta: ['client'],
+    fields: [
+      { name: 'name', label: 'Nome del progetto', required: true, placeholder: 'Es. Restyling sito' },
+      { name: 'client', label: 'Cliente' },
+      { name: 'deadline', label: 'Consegna', type: 'date' },
+      { name: 'status', label: 'Stato', type: 'status' },
+      { name: 'notes', label: 'Note', type: 'textarea' },
+    ],
+    statuses: [st('Da iniziare', 'neutral'), st('In corso', 'progress'), st('In revisione', 'info'), st('Completato', 'done')],
+  },
+  scadenze: {
+    singular: 'scadenza', addLabel: 'Nuova scadenza', empty: 'Nessuna scadenza.',
+    titleField: 'title', dateField: 'date', groupBy: 'month', upcoming: true,
+    meta: ['project'],
+    fields: [
+      { name: 'date', label: 'Data', type: 'date', required: true },
+      { name: 'title', label: 'Cosa', required: true, placeholder: 'Es. Consegna bozze' },
+      { name: 'project', label: 'Progetto o cliente' },
+      { name: 'status', label: 'Stato', type: 'status' },
+      { name: 'notes', label: 'Note', type: 'textarea' },
+    ],
+    statuses: [st('Da fare', 'neutral'), st('In corso', 'progress'), st('Fatto', 'done')],
+  },
+  palette: {
+    singular: 'palette', addLabel: 'Nuova palette', empty: 'Nessuna palette.',
+    titleField: 'name',
+    fields: [
+      { name: 'name', label: 'Nome', required: true, placeholder: 'Es. Brand cliente' },
+      { name: 'client', label: 'Cliente o progetto' },
+      { name: 'colors', label: 'Colori (codici HEX separati da virgola o spazio)', type: 'textarea', required: true, rows: 3,
+        placeholder: '#1d1d1b, #ea638c, #fcf2f5' },
+    ],
+    normalize: (r) => { r.colors = parseColors(r.colors); return r.colors.length > 0; },
+  },
+};
+const RECORD_KEYS = Object.keys(RECORD_TYPES);
+
+const isClosed = (status) => status && (status.tone === 'done' || status.tone === 'ko');
+const statusOf = (type, r) => type.statuses && (type.statuses.find((s) => s.label === r.status) || type.statuses[0]);
+const money = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' });
+const formatMoney = (v) => (v === '' || v == null || isNaN(Number(v)) ? '' : money.format(Number(v)));
+const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+function recordFields(type, r) {
+  return type.fields.map((f) => {
+    const out = { ...f };
+    if (f.type === 'status') Object.assign(out, { type: 'select', options: type.statuses.map((s) => s.label) });
+    else if (f.type === 'select') out.empty = true;
+    const v = r ? r[f.name] : undefined;
+    out.value = Array.isArray(v) ? v.join(', ')
+      : v ?? (f.type === 'status' ? type.statuses[0].label : f.type === 'date' && f.required ? todayISO() : '');
+    return out;
+  });
+}
+
+function editRecord(key, r) {
+  const type = RECORD_TYPES[key];
+  openForm({ title: r ? `Modifica ${type.singular}` : type.addLabel, fields: recordFields(type, r),
+    onSubmit: (v) => {
+      if (type.fields.some((f) => f.required && !v[f.name])) return false;
+      const next = { ...(r || { id: uid() }) };
+      for (const f of type.fields) next[f.name] = f.type === 'url' && v[f.name] ? normalizeUrl(v[f.name]) : v[f.name];
+      if (type.normalize && !type.normalize(next)) return false;
+      if (r) Object.assign(r, next);
+      else state[key].push(next);
+      save(); render();
+    } });
+}
+
+function deleteRecord(key, r) {
+  const type = RECORD_TYPES[key];
+  confirmBox(`Eliminare "${r[type.titleField]}"?`, () => {
+    state[key] = state[key].filter((x) => x.id !== r.id); save(); render();
+  });
+}
+
+function cycleStatus(type, r) {
+  const i = type.statuses.findIndex((s) => s.label === r.status);
+  r.status = type.statuses[(Math.max(i, 0) + 1) % type.statuses.length].label;
+  save(); render();
+}
+
+function dateBlock(iso, overdue) {
+  if (!iso) return h('div', { class: 'record-date' });
+  const d = new Date(iso + 'T00:00:00');
+  return h('div', { class: 'record-date' + (overdue ? ' overdue' : ''), title: formatDate(iso) },
+    h('b', null, d.getDate()), h('span', null, d.toLocaleDateString('it-IT', { month: 'short' }).replace('.', '')));
+}
+
+function recordRow(key, r, { onOpen, showPage } = {}) {
+  const type = RECORD_TYPES[key];
+  const status = statusOf(type, r);
+  const date = type.dateField && r[type.dateField];
+  const overdue = date && date < todayISO() && !isClosed(status);
+  const meta = [showPage && PROFILE_PAGES[key].label, ...(type.meta || []).map((n) => r[n])].filter(Boolean);
+  const amount = type.amountField && formatMoney(r[type.amountField]);
+  const url = type.urlField && r[type.urlField];
+  return h('div', { class: 'record' + (isClosed(status) ? ' closed' : '') + (onOpen ? ' clickable' : ''),
+    onclick: onOpen && ((e) => { if (!e.target.closest('button')) onOpen(); }) },
+    type.dateField && dateBlock(date, overdue),
+    h('div', { class: 'record-main' },
+      h('div', { class: 'record-title', style: type.titleStyle ? type.titleStyle(r) : null }, r[type.titleField]),
+      meta.length > 0 && h('div', { class: 'record-meta' }, meta.join(' · ')),
+      !onOpen && r.notes && h('div', { class: 'record-notes' }, r.notes)),
+    amount && h('div', { class: 'record-amount' }, amount),
+    url && h('button', { class: 'ghost small', onclick: () => window.api.openExternal(url) }, 'Apri'),
+    status && h('button', { class: `status tone-${status.tone}`, title: 'Clic per passare allo stato successivo',
+      onclick: () => cycleStatus(type, r) }, status.label),
+    !onOpen && editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => editRecord(key, r) }, '✎'),
+    !onOpen && editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => deleteRecord(key, r) }, '✕'));
+}
+
+const byDate = (field) => (a, b) => (a[field] || '9999').localeCompare(b[field] || '9999');
+
+// Raggruppa le schede per mese, per stato o per il valore di un campo
+function groupRecords(type, list) {
+  if (type.groupBy === 'month') {
+    const thisMonth = todayISO().slice(0, 7);
+    const sorted = [...list].sort(byDate(type.dateField));
+    const groups = new Map();
+    const past = [];
+    for (const r of sorted) {
+      const ym = (r[type.dateField] || '').slice(0, 7);
+      if (ym && ym < thisMonth) { past.push(r); continue; }
+      const label = ym ? capitalize(new Date(ym + '-01T00:00:00').toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })) : 'Senza data';
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(r);
+    }
+    const out = [...groups].map(([label, items]) => ({ label, items }));
+    if (past.length) out.push({ label: 'Mesi precedenti', items: past.reverse(), collapsible: true });
+    return out;
+  }
+  if (type.groupBy === 'status') {
+    const sorted = type.dateField ? [...list].sort(byDate(type.dateField)) : list;
+    return type.statuses.map((s) => ({ label: s.label, items: sorted.filter((r) => statusOf(type, r) === s) }))
+      .filter((g) => g.items.length);
+  }
+  const field = type.fields.find((f) => f.name === type.groupBy);
+  const order = [...(field.options || []), ...new Set(list.map((r) => r[type.groupBy]))];
+  return [...new Set(order)].map((v) => ({ label: v || 'Altro', items: list.filter((r) => (r[type.groupBy] || '') === (v || '')) }))
+    .filter((g) => g.items.length);
+}
+
+const openPastGroups = new Set(); // sezioni con "Mesi precedenti" aperto
+
+function renderRecords(view, key) {
+  const type = RECORD_TYPES[key];
+  view.append(h('div', { class: 'row', style: 'margin-bottom:6px' },
+    h('button', { class: 'primary', onclick: () => editRecord(key) }, `+ ${type.addLabel}`)));
+  if (!state[key].length) { view.append(h('div', { class: 'empty' }, type.empty)); return; }
+  for (const g of groupRecords(type, state[key])) {
+    const total = type.amountField ? g.items.reduce((sum, r) => sum + (Number(r[type.amountField]) || 0), 0) : 0;
+    const open = !g.collapsible || openPastGroups.has(key);
+    view.append(h('div', { class: 'section-title group-title' },
+      g.label, h('span', { class: 'sum' }, `${g.items.length}${total ? ' · ' + money.format(total) : ''}`),
+      g.collapsible && h('button', { class: 'ghost small', onclick: () => {
+        if (open) openPastGroups.delete(key); else openPastGroups.add(key);
+        render();
+      } }, open ? 'Nascondi' : 'Mostra')));
+    if (open) view.append(h('div', { class: 'card records' }, g.items.map((r) => recordRow(key, r))));
+  }
+}
+
+function upcomingRecords(keys, limit = 6) {
+  const out = [];
+  for (const key of keys) {
+    const type = RECORD_TYPES[key];
+    for (const r of state[key]) {
+      if (r[type.dateField] && !isClosed(statusOf(type, r))) out.push({ key, r, date: r[type.dateField] });
+    }
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date)).slice(0, limit);
+}
+
+// --- PALETTE COLORI (Grafico)
+function parseColors(text) {
+  const found = String(text || '').match(/#?\b(?:[0-9a-f]{6}|[0-9a-f]{3})\b/gi) || [];
+  return [...new Set(found.map((c) => {
+    c = c.replace('#', '').toLowerCase();
+    return '#' + (c.length === 3 ? c.replace(/./g, '$&$&') : c);
+  }))];
+}
+function readableOn(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? '#1d1d1b' : '#ffffff';
+}
+function renderPalette(view) {
+  view.append(h('div', { class: 'row', style: 'margin-bottom:14px' },
+    h('button', { class: 'primary', onclick: () => editRecord('palette') }, '+ Nuova palette')));
+  if (!state.palette.length) { view.append(h('div', { class: 'empty' }, RECORD_TYPES.palette.empty)); return; }
+  view.append(h('div', { class: 'palette-grid' }, state.palette.map((p) => h('div', { class: 'palette-card' },
+    h('div', { class: 'palette-colors' }, p.colors.map((c) => h('button', {
+      style: `background:${c}; color:${readableOn(c)}`, title: 'Copia ' + c, onclick: () => copy(c, `${c} copiato`) }, c))),
+    h('div', { class: 'palette-info' },
+      h('div', { style: 'flex:1; min-width:0' }, h('div', { class: 'record-title' }, p.name),
+        p.client && h('div', { class: 'record-meta' }, p.client)),
+      h('button', { class: 'ghost small', onclick: () => copy(p.colors.join(', '), 'Palette copiata') }, 'Copia tutti'),
+      editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => editRecord('palette', p) }, '✎'),
+      editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => deleteRecord('palette', p) }, '✕'))))));
+}
+
+// ---------- Aspetto ----------
+const PALETTES = [
+  { id: 'rosa', label: 'Rosa',
+    light: { bg: '#fcf2f5', panel: '#ffffff', sidebar: '#f7e3e9', line: '#eed6dd', accent: '#2f5bea' },
+    dark: { bg: '#1c1719', panel: '#282224', sidebar: '#241c1f', line: '#3e3337', accent: '#7b9bff' } },
+  { id: 'neutro', label: 'Neutro',
+    light: { bg: '#f5f5f4', panel: '#ffffff', sidebar: '#ebebe9', line: '#e0dfdc', accent: '#2f5bea' },
+    dark: { bg: '#18181a', panel: '#242427', sidebar: '#1f1f22', line: '#36363a', accent: '#7b9bff' } },
+  { id: 'blu', label: 'Blu',
+    light: { bg: '#f1f5fc', panel: '#ffffff', sidebar: '#e1eaf8', line: '#d6e0f0', accent: '#2f5bea' },
+    dark: { bg: '#151a24', panel: '#1f2633', sidebar: '#1a202b', line: '#313a4a', accent: '#7b9bff' } },
+  { id: 'verde', label: 'Verde',
+    light: { bg: '#f1f8f4', panel: '#ffffff', sidebar: '#ddefe4', line: '#d1e6d9', accent: '#1f8a5b' },
+    dark: { bg: '#141c18', panel: '#1f2924', sidebar: '#19221e', line: '#2f3d36', accent: '#5fd19b' } },
+  { id: 'viola', label: 'Viola',
+    light: { bg: '#f6f2fc', panel: '#ffffff', sidebar: '#e9e0f7', line: '#e0d5f0', accent: '#7a3fd6' },
+    dark: { bg: '#1a1622', panel: '#251f30', sidebar: '#1f1a29', line: '#3a3149', accent: '#b18cff' } },
+  { id: 'sabbia', label: 'Sabbia',
+    light: { bg: '#faf6ef', panel: '#ffffff', sidebar: '#f0e7d8', line: '#e8dcc8', accent: '#c2621a' },
+    dark: { bg: '#1e1a15', panel: '#2a251f', sidebar: '#241f1a', line: '#3d362d', accent: '#f0a35e' } },
+];
+const THEMES = [['system', 'Automatico'], ['light', 'Chiaro'], ['dark', 'Scuro']];
+const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+function applyAppearance() {
+  const s = state.settings;
+  const pal = PALETTES.find((p) => p.id === s.palette) || PALETTES[0];
+  const dark = s.theme === 'dark' || (s.theme === 'system' && darkQuery.matches);
+  const c = dark ? pal.dark : pal.light;
+  const accent = s.accent || c.accent;
+  const root = document.documentElement.style;
+  for (const k of ['bg', 'panel', 'sidebar', 'line']) root.setProperty('--' + k, c[k]);
+  root.setProperty('--accent', accent);
+  root.setProperty('--on-accent', readableOn(accent)); // testo leggibile sui pulsanti principali
+  root.setProperty('--accent-soft', `color-mix(in srgb, ${accent} ${dark ? 24 : 13}%, ${c.panel})`);
+  window.api.setAppearance({ theme: s.theme, bg: c.bg, fg: dark ? '#efeeea' : '#1d1d1b' });
+}
+darkQuery.addEventListener('change', () => state && applyAppearance());
+
+// --- Icona dell'app: varianti di colore dell'icona originale o immagine caricata
+const ICON_PRESETS = [
+  { id: 'rosa', label: 'Rosa (originale)', color: null },
+  { id: 'blu', label: 'Blu', color: '#2f5bea' },
+  { id: 'verde', label: 'Verde', color: '#1f8a5b' },
+  { id: 'viola', label: 'Viola', color: '#7a3fd6' },
+  { id: 'arancio', label: 'Arancio', color: '#e8772e' },
+  { id: 'antracite', label: 'Antracite', color: '#2b2b2e' },
+];
+const APP_ICON_SIZE = 512;
+const iconCache = new Map();
+let baseIcon;
+
+function loadBaseIcon() {
+  baseIcon ||= new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = '../build/icon.png';
+  });
+  return baseIcon;
+}
+
+// Ricolora lo sfondo dell'icona mantenendo bianco il "3" e l'ombra
+async function tintedIcon(hex) {
+  if (iconCache.has(hex)) return iconCache.get(hex);
+  const img = await loadBaseIcon();
+  const size = APP_ICON_SIZE;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, size, size);
+  const data = ctx.getImageData(0, 0, size, size);
+  const px = data.data;
+  const o = (Math.round(size * 0.5) * size + Math.round(size * 0.15)) * 4; // punto rosa a sinistra del "3"
+  const baseG = px[o + 1];
+  const target = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  for (let i = 0; i < px.length; i += 4) {
+    if (!px[i + 3] || px[i] - px[i + 1] < 25) continue; // bianco e grigi dell'ombra restano
+    const w = Math.min(1, Math.max(0, (px[i + 1] - baseG) / (255 - baseG))); // quota di bianco sui bordi del "3"
+    for (let c = 0; c < 3; c++) px[i + c] = target[c] + (255 - target[c]) * w;
+  }
+  ctx.putImageData(data, 0, 0);
+  const url = canvas.toDataURL('image/png');
+  iconCache.set(hex, url);
+  return url;
+}
+
+async function chooseIcon(id, dataUrl) {
+  Object.assign(state.settings, { iconId: id, iconData: dataUrl || '' });
+  window.api.setIcon(dataUrl || null);
+  save(); render();
+}
+
+// --- IMPOSTAZIONI
+function renderSettings(view) {
+  const s = state.settings;
+  const set = (patch) => { Object.assign(s, patch); save(); applyAppearance(); render(); };
+  const pal = PALETTES.find((p) => p.id === s.palette) || PALETTES[0];
+
+  view.append(
+    h('div', { class: 'section-title' }, 'Profilo'),
+    h('div', { class: 'profile-grid' }, PROFILES.map((p) =>
+      h('button', { class: 'profile-card' + (p.id === s.profile ? ' active' : ''), onclick: () => set({ profile: p.id }) },
+        h('div', { class: 'profile-icon' }, p.icon),
+        h('div', { class: 'profile-name' }, p.label),
+        h('div', { class: 'profile-pages' }, p.pages.map((id) => PROFILE_PAGES[id].label).join(' · '))))),
+    h('div', { class: 'hint' }, `Le sezioni ${COMMON_PAGES.map((p) => p.label).join(', ')} ci sono per tutti i profili. `
+      + 'Cambiando profilo i dati delle altre sezioni restano salvati.'));
+
+  view.append(
+    h('div', { class: 'section-title' }, 'Tema'),
+    h('div', { class: 'segmented' }, THEMES.map(([id, label]) =>
+      h('button', { class: id === s.theme ? 'active' : '', onclick: () => set({ theme: id }) }, label))),
+    h('div', { class: 'section-title' }, 'Colori'),
+    h('div', { class: 'swatch-row' }, PALETTES.map((p) =>
+      h('button', { class: 'palette-swatch' + (p.id === s.palette ? ' active' : ''), onclick: () => set({ palette: p.id }) },
+        h('div', { class: 'sw' }, h('span', { style: `background:${p.light.sidebar}` }),
+          h('span', { style: `background:${p.dark.panel}` }), h('span', { style: `background:${p.light.accent}` })),
+        p.label))),
+    h('div', { class: 'accent-row' },
+      h('span', null, 'Colore principale'),
+      h('input', { type: 'color', value: s.accent || pal.light.accent,
+        oninput: (e) => { s.accent = e.target.value; applyAppearance(); save(); },
+        onchange: () => render() }),
+      s.accent && h('button', { class: 'ghost small', onclick: () => set({ accent: '' }) }, 'Usa quello del tema')));
+
+  const fileInput = h('input', { type: 'file', accept: 'image/*', style: 'display:none', onchange: async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try { chooseIcon('custom', await imageFileToDataUrl(f, APP_ICON_SIZE)); }
+    catch (err) { toast(err.message); }
+  } });
+  const presetTiles = ICON_PRESETS.map((p) => {
+    const img = h('img', { alt: '' });
+    if (p.color) tintedIcon(p.color).then((url) => { img.src = url; });
+    else img.src = '../build/icon.png';
+    return h('button', { class: 'icon-choice' + (s.iconId === p.id ? ' active' : ''), title: p.label,
+      onclick: async () => chooseIcon(p.id, p.color ? await tintedIcon(p.color) : '') }, img);
+  });
+  view.append(
+    h('div', { class: 'section-title' }, 'Icona dell\'app'),
+    h('div', { class: 'icon-grid' },
+      presetTiles,
+      s.iconId === 'custom' && s.iconData && h('button', { class: 'icon-choice active', title: 'Immagine caricata' },
+        h('img', { src: s.iconData, alt: '' })),
+      h('button', { class: 'ghost small', onclick: () => fileInput.click() }, 'Carica immagine…'),
+      fileInput),
+    h('div', { class: 'hint' }, IS_WIN
+      ? 'L\'icona cambia nella barra delle applicazioni e nel widget. Il collegamento sul Desktop e nel menu Start mantiene quella originale.'
+      : 'L\'icona cambia nel Dock e nel widget mentre l\'app è aperta. Nel Finder e nel Launchpad resta quella originale.'));
+}
+
 // ---------- Aggiornamenti ----------
 const UPDATE_CHECK_EVERY = 6 * 60 * 60 * 1000;
 
@@ -824,6 +1293,21 @@ function normalizeState(d) {
     notes: typeof d.notes === 'string' ? d.notes : '',
     appunti: Array.isArray(d.appunti) ? d.appunti : [],
     snippets: Array.isArray(d.snippets) ? d.snippets : [],
+    ...Object.fromEntries(RECORD_KEYS.map((k) => [k, Array.isArray(d[k]) ? d[k] : []])),
+    settings: normalizeSettings(d.settings),
+  };
+}
+
+function normalizeSettings(s) {
+  s = s && typeof s === 'object' ? s : {};
+  const pick = (v, allowed, fallback) => (allowed.includes(v) ? v : fallback);
+  return {
+    profile: pick(s.profile, PROFILES.map((p) => p.id), 'smm'),
+    theme: pick(s.theme, THEMES.map(([id]) => id), 'system'),
+    palette: pick(s.palette, PALETTES.map((p) => p.id), 'rosa'),
+    accent: /^#[0-9a-f]{6}$/i.test(s.accent) ? s.accent : '',
+    iconId: typeof s.iconId === 'string' ? s.iconId : 'rosa',
+    iconData: typeof s.iconData === 'string' && s.iconData.startsWith('data:image/') ? s.iconData : '',
   };
 }
 
@@ -831,6 +1315,7 @@ async function boot() {
   const loaded = await window.api.load();
   state = loaded ? normalizeState(loaded) : seedData();
   if (!loaded) await window.api.save(state);
+  applyAppearance();
 
   $('#btn-edit').addEventListener('click', () => { editing = !editing; render(); });
   $('#btn-export').addEventListener('click', async () => { if (await window.api.exportData(state)) toast('Backup esportato'); });
@@ -839,7 +1324,10 @@ async function boot() {
     if (!data) return;
     if (data.__error) return toast(data.__error);
     confirmBox('Importare il backup? I dati attuali verranno sostituiti.', async () => {
-      state = normalizeState(data); await window.api.save(state); render(); toast('Backup importato');
+      // I backup delle versioni precedenti non hanno impostazioni: si tengono quelle attuali
+      state = normalizeState({ settings: state.settings, ...data }); await window.api.save(state);
+      applyAppearance(); window.api.setIcon(state.settings.iconData || null);
+      render(); toast('Backup importato');
     }, 'Importa');
   });
   document.addEventListener('keydown', (e) => {

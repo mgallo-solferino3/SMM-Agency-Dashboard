@@ -47,7 +47,22 @@ L'app controlla da sola (all'avvio e ogni 6 ore) se su GitHub c'è una versione 
 - **Home**: ricerca globale (⌘K su Mac, Ctrl+K su Windows) su strumenti e link dei clienti, scorciatoie, to-do aperti.
 - **Clienti**: un blocco per cliente con i suoi link (sito, admin, Analytics, ecc.).
 - **Strumenti**: link dell'agenzia raggruppati per categoria.
-- **To-do**, **Note** (salvataggio automatico), **Generatore UTM**, **Snippet** copiabili con un clic.
+- **To-do**, **Note** (salvataggio automatico), **Appunti**, **Snippet** copiabili con un clic.
+- **Impostazioni**: profilo, tema (automatico, chiaro, scuro), palette di colori, colore principale e icona dell'app (varianti di colore o immagine propria).
+
+### Profili
+
+Le sezioni qui sopra ci sono per tutti. Il profilo scelto nelle Impostazioni aggiunge le sue:
+
+| Profilo | Sezioni |
+| --- | --- |
+| Social Media Manager | Generatore UTM, Calendario editoriale |
+| Grafico | Palette colori, Font |
+| Fotografo | Shooting |
+| Commerciale | Lead, Preventivi |
+| Project Manager | Progetti, Scadenze |
+
+Le schede con una data compaiono in Home sotto **In programma**. Un clic sullo stato di una scheda la fa passare allo stato successivo. Cambiando profilo i dati delle altre sezioni restano salvati.
 
 Quando riduci a icona la finestra compare un piccolo **widget flottante** con l'icona dell'app: un clic riapre la dashboard, trascinandolo lo sposti (la posizione viene ricordata).
 

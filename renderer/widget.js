@@ -29,3 +29,10 @@ window.addEventListener('mouseup', () => {
   start = null;
   dragging = false;
 });
+
+// Icona scelta nelle impostazioni (null = quella originale)
+const icon = document.getElementById('icon');
+const DEFAULT_ICON = icon.getAttribute('src');
+const setIcon = (dataUrl) => { icon.src = dataUrl || DEFAULT_ICON; };
+window.widget.getIcon().then(setIcon);
+window.widget.onIcon(setIcon);

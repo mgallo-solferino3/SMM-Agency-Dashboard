@@ -39,11 +39,39 @@ let win;
 
 const ICON_PATH = path.join(__dirname, 'build', 'icon.png');
 
+// Impostazioni salvate (tema, icona) lette all'avvio, prima che l'interfaccia sia pronta
+function readSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(DATA_FILE(), 'utf8')).settings || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+const THEME_SOURCES = ['system', 'light', 'dark'];
+// Colori della barra del titolo inviati dall'interfaccia in base a tema e palette scelti
+let chromeColors = null;
+
 // Barra del titolo: su Mac i "semafori" dentro la finestra, su Windows i pulsanti
 // standard sovrapposti in alto a destra, con i colori del tema (chiaro/scuro)
-const titleBarOverlay = () => (nativeTheme.shouldUseDarkColors
-  ? { color: '#1c1719', symbolColor: '#efeeea', height: 40 }
-  : { color: '#fcf2f5', symbolColor: '#1d1d1b', height: 40 });
+const titleBarOverlay = () => {
+  if (chromeColors) return { color: chromeColors.bg, symbolColor: chromeColors.fg, height: 40 };
+  return nativeTheme.shouldUseDarkColors
+    ? { color: '#1c1719', symbolColor: '#efeeea', height: 40 }
+    : { color: '#fcf2f5', symbolColor: '#1d1d1b', height: 40 };
+};
+
+// Icona scelta nelle impostazioni (data URL) o null per quella originale
+let customIcon = null;
+
+function applyIcon(dataUrl) {
+  customIcon = typeof dataUrl === 'string' && dataUrl.startsWith('data:image/') ? dataUrl : null;
+  const img = customIcon ? nativeImage.createFromDataURL(customIcon) : nativeImage.createFromPath(ICON_PATH);
+  if (img.isEmpty()) return;
+  if (IS_MAC && app.dock) app.dock.setIcon(img);
+  if (!IS_MAC && win && !win.isDestroyed()) win.setIcon(img);
+  if (widgetWin && !widgetWin.isDestroyed()) widgetWin.webContents.send('widget:icon', customIcon);
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -55,7 +83,7 @@ function createWindow() {
       ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 18, y: 18 } }
       : { titleBarStyle: 'hidden', titleBarOverlay: titleBarOverlay(), autoHideMenuBar: true }),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1719' : '#fcf2f5',
-    icon: ICON_PATH,
+    icon: customIcon ? nativeImage.createFromDataURL(customIcon) : ICON_PATH,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -167,6 +195,8 @@ function restoreMainWindow() {
   app.focus({ steal: true });
 }
 
+ipcMain.handle('widget:icon', () => customIcon);
+
 ipcMain.on('widget:restore', () => {
   hideWidget();
   restoreMainWindow();
@@ -269,6 +299,24 @@ ipcMain.handle('data:save', (_e, data) => {
 });
 
 ipcMain.handle('open:external', (_e, url) => openExternalSafe(String(url)));
+
+// ---- Aspetto: tema chiaro/scuro, colori della barra del titolo, icona ----
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+ipcMain.handle('appearance:set', (_e, { theme, bg, fg } = {}) => {
+  if (THEME_SOURCES.includes(theme)) nativeTheme.themeSource = theme;
+  if (HEX_COLOR.test(bg) && HEX_COLOR.test(fg)) chromeColors = { bg, fg };
+  if (win && !win.isDestroyed()) {
+    if (chromeColors) win.setBackgroundColor(chromeColors.bg);
+    if (IS_WIN) win.setTitleBarOverlay(titleBarOverlay());
+  }
+  return true;
+});
+
+ipcMain.handle('icon:set', (_e, dataUrl) => {
+  applyIcon(dataUrl);
+  return true;
+});
 
 // ---- App installate (tendina "App installate" negli strumenti) ----
 // Mac: i bundle .app nelle cartelle Applicazioni. Windows: i collegamenti del menu Start.
@@ -440,9 +488,9 @@ ipcMain.handle('update:check', async () => {
 });
 
 app.whenReady().then(() => {
-  if (IS_MAC && app.dock) {
-    app.dock.setIcon(ICON_PATH);
-  }
+  const settings = readSettings();
+  if (THEME_SOURCES.includes(settings.theme)) nativeTheme.themeSource = settings.theme;
+  applyIcon(settings.iconData);
   if (IS_WIN) {
     app.setAppUserModelId('agency.solferino3.dashboard.smm'); // icona e raggruppamento corretti nella barra delle applicazioni
     nativeTheme.on('updated', () => {
