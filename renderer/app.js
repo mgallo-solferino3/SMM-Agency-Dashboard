@@ -1380,9 +1380,10 @@ function applyAppearance() {
 }
 darkQuery.addEventListener('change', () => state && applyAppearance());
 
-// --- Icona dell'app: varianti di colore dell'icona originale o immagine caricata
+// --- Icona dell'app: quella predefinita (#6295A5), varianti di colore dell'icona rosa originale o immagine caricata
 const ICON_PRESETS = [
-  { id: 'rosa', label: 'Rosa (originale)', color: null },
+  { id: 'solferino', label: 'Solferino 3 (predefinita)', color: null },
+  { id: 'rosa', label: 'Rosa', color: '#ea638c' },
   { id: 'blu', label: 'Blu', color: '#2f5bea' },
   { id: 'verde', label: 'Verde', color: '#1f8a5b' },
   { id: 'viola', label: 'Viola', color: '#7a3fd6' },
@@ -1398,12 +1399,12 @@ function loadBaseIcon() {
     const img = new Image();
     img.onload = () => resolve(img);
     img.onerror = reject;
-    img.src = '../build/icon.png';
+    img.src = '../build/icon-rosa.png'; // le varianti si ricavano dall'icona rosa originale
   });
   return baseIcon;
 }
 
-// Ricolora lo sfondo dell'icona mantenendo bianco il "3" e l'ombra
+// Ricolora lo sfondo dell'icona rosa originale mantenendo bianco il "3" e l'ombra
 async function tintedIcon(hex) {
   if (iconCache.has(hex)) return iconCache.get(hex);
   const img = await loadBaseIcon();
@@ -1509,8 +1510,8 @@ function renderSettings(view) {
       h('button', { class: 'ghost small', onclick: () => fileInput.click() }, 'Carica immagine…'),
       fileInput),
     h('div', { class: 'hint' }, IS_WIN
-      ? 'L\'icona cambia nella barra delle applicazioni e nel widget. Il collegamento sul Desktop e nel menu Start mantiene quella originale.'
-      : 'L\'icona cambia nel Dock e nel widget mentre l\'app è aperta. Nel Finder e nel Launchpad resta quella originale.'));
+      ? 'L\'icona cambia nella barra delle applicazioni e nel widget. Il collegamento sul Desktop e nel menu Start mantiene quella predefinita.'
+      : 'L\'icona cambia nel Dock e nel widget mentre l\'app è aperta. Nel Finder e nel Launchpad resta quella predefinita.'));
 }
 
 // ---------- Aggiornamenti ----------
@@ -1585,7 +1586,8 @@ function normalizeSettings(s) {
     paletteChosen: !!s.paletteChosen,
     accent: /^#[0-9a-f]{6}$/i.test(s.accent) ? s.accent : '',
     extraPages: Array.isArray(s.extraPages) ? [...new Set(s.extraPages.filter((id) => PROFILE_PAGES[id]))] : [],
-    iconId: typeof s.iconId === 'string' ? s.iconId : 'rosa',
+    // Fino alla 1.4 l'icona predefinita era quella rosa (iconId 'rosa' senza immagine salvata)
+    iconId: typeof s.iconId === 'string' && !(s.iconId === 'rosa' && !s.iconData) ? s.iconId : 'solferino',
     iconData: typeof s.iconData === 'string' && s.iconData.startsWith('data:image/') ? s.iconData : '',
   };
 }
