@@ -1,4 +1,4 @@
-// Agency Dashboard SMM: legge le schede del foglio delle gallerie Pixieset e le restituisce all'app in JSON.
+// Solferino 3 Dashboard: legge le schede del foglio delle gallerie Pixieset e le restituisce all'app in JSON.
 // Il foglio resta privato: lo script gira con i permessi di chi lo pubblica e risponde solo a chi conosce la chiave.
 // Restituisce tutte le schede visibili (es. una per fotografo); per ogni cella il testo visibile e,
 // se c'è, il link collegato al testo.

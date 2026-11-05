@@ -1,6 +1,6 @@
 {
-  "name": "agency-dashboard-smm",
-  "productName": "Agency Dashboard SMM",
+  "name": "solferino3-dashboard",
+  "productName": "Solferino 3 Dashboard",
   "version": "1.3.0",
   "description": "Dashboard locale per Mac e Windows con link, strumenti e utility per il lavoro di agenzia",
   "main": "main.js",
@@ -8,12 +8,12 @@
     "start": "electron .",
     "dist": "electron-builder --mac",
     "dist:win": "electron-builder --win",
-    "install-local": "npm run dist && (pkill -x \"Agency Dashboard SMM\" || true) && sleep 2 && rm -rf \"/Applications/Agency Dashboard SMM.app\" && ditto \"dist/mac-universal/Agency Dashboard SMM.app\" \"/Applications/Agency Dashboard SMM.app\" && xattr -cr \"/Applications/Agency Dashboard SMM.app\" && open \"/Applications/Agency Dashboard SMM.app\"",
+    "install-local": "npm run dist && (pkill -x \"Solferino 3 Dashboard\" || true) && (pkill -x \"Agency Dashboard SMM\" || true) && sleep 2 && rm -rf \"/Applications/Solferino 3 Dashboard.app\" \"/Applications/Agency Dashboard SMM.app\" && ditto \"dist/mac-universal/Solferino 3 Dashboard.app\" \"/Applications/Solferino 3 Dashboard.app\" && xattr -cr \"/Applications/Solferino 3 Dashboard.app\" && open \"/Applications/Solferino 3 Dashboard.app\"",
     "release": "bash scripts/release.sh"
   },
   "build": {
     "appId": "agency.solferino3.dashboard.smm",
-    "productName": "Agency Dashboard SMM",
+    "productName": "Solferino 3 Dashboard",
     "files": [
       "main.js",
       "preload.js",
@@ -48,7 +48,7 @@
     },
     "nsis": {
       "artifactName": "${productName} Setup ${version}.${ext}",
-      "shortcutName": "Agency Dashboard SMM"
+      "shortcutName": "Solferino 3 Dashboard"
     },
     "afterSign": "build/adhoc-sign.js"
   },

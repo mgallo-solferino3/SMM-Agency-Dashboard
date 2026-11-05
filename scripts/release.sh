@@ -40,8 +40,10 @@ trap - ERR
 # GitHub sostituisce gli spazi nei nomi: copio i file con nomi puliti
 ASSETS="$(mktemp -d)"
 trap 'rm -rf "$ASSETS"' EXIT
-cp "dist/Agency Dashboard SMM-$VERSION-universal.dmg" "$ASSETS/Agency-Dashboard-SMM-$VERSION-mac-universal.dmg"
-cp "dist/Agency Dashboard SMM Setup $VERSION.exe" "$ASSETS/Agency-Dashboard-SMM-Setup-$VERSION-windows.exe"
+NAME="$(node -p "require('./package.json').build.productName")"
+SLUG="${NAME// /-}"
+cp "dist/$NAME-$VERSION-universal.dmg" "$ASSETS/$SLUG-$VERSION-mac-universal.dmg"
+cp "dist/$NAME Setup $VERSION.exe" "$ASSETS/$SLUG-Setup-$VERSION-windows.exe"
 
 echo "→ Commit, tag e push"
 git add -A
@@ -51,21 +53,21 @@ git push -q origin main "$TAG"
 
 cat > "$ASSETS/notes.md" <<EOF
 ## Download
-- **macOS** (Apple Silicon e Intel): \`Agency-Dashboard-SMM-$VERSION-mac-universal.dmg\`
-- **Windows** (x64): \`Agency-Dashboard-SMM-Setup-$VERSION-windows.exe\`
+- **macOS** (Apple Silicon e Intel): \`$SLUG-$VERSION-mac-universal.dmg\`
+- **Windows** (x64): \`$SLUG-Setup-$VERSION-windows.exe\`
 
 ## Installazione
 - **macOS** (consigliato): apri il Terminale, incolla questo comando e premi Invio. Scarica e installa l'ultima versione senza il blocco di macOS:
   \`\`\`
   curl -fsSL https://raw.githubusercontent.com/mgallo-solferino3/SMM-Agency-Dashboard/main/scripts/install-mac.sh | bash
   \`\`\`
-  Se scarichi il \`.dmg\` dal browser, macOS può bloccare l'app (l'icona saltella nel Dock senza aprirsi) perché non è firmata con Apple Developer ID. In quel caso, dopo averla trascinata in Applicazioni, esegui nel Terminale: \`xattr -cr "/Applications/Agency Dashboard SMM.app"\`
+  Se scarichi il \`.dmg\` dal browser, macOS può bloccare l'app (l'icona saltella nel Dock senza aprirsi) perché non è firmata con Apple Developer ID. In quel caso, dopo averla trascinata in Applicazioni, esegui nel Terminale: \`xattr -cr "/Applications/$NAME.app"\`
 - **Windows**: l'installer non è firmato. Se compare SmartScreen, clicca **Ulteriori informazioni → Esegui comunque**.
 
 EOF
 
 echo "→ Creo la GitHub Release"
-gh release create "$TAG" --target main --title "Agency Dashboard SMM $VERSION" \
+gh release create "$TAG" --target main --title "$NAME $VERSION" \
   --notes-file "$ASSETS/notes.md" --generate-notes \
   "$ASSETS"/*.dmg "$ASSETS"/*.exe
 

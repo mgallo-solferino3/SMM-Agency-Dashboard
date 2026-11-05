@@ -42,6 +42,47 @@ let win;
 const isPrimaryInstance = app.requestSingleInstanceLock({ version: app.getVersion(), execPath: process.execPath });
 if (!isPrimaryInstance) app.exit(0);
 
+// ---- Cambio nome da "Agency Dashboard SMM" (fino alla 1.3.x) ----
+const OLD_APP_NAME = 'Agency Dashboard SMM';
+const MIGRATED_FILES = ['dashboard-data.json', 'widget-position.json', 'thumbnails'];
+
+// La cartella dei dati prende il nome dell'app: al primo avvio si copiano i dati da quella vecchia
+// (che resta come copia di sicurezza) e si aggiornano i percorsi delle anteprime salvati nei dati.
+function migrateOldUserData() {
+  const oldDir = path.join(app.getPath('appData'), OLD_APP_NAME);
+  const newDir = app.getPath('userData');
+  if (oldDir === newDir || fs.existsSync(DATA_FILE()) || !fs.existsSync(path.join(oldDir, 'dashboard-data.json'))) return;
+  try {
+    fs.mkdirSync(newDir, { recursive: true });
+    for (const name of MIGRATED_FILES) {
+      const from = path.join(oldDir, name);
+      if (fs.existsSync(from)) fs.cpSync(from, path.join(newDir, name), { recursive: true });
+    }
+    const oldUrl = pathToFileURL(oldDir).toString();
+    const newUrl = pathToFileURL(newDir).toString();
+    const data = fs.readFileSync(DATA_FILE(), 'utf8');
+    fs.writeFileSync(DATA_FILE(), data.split(oldUrl).join(newUrl), 'utf8');
+  } catch (_) { /* in caso di errore l'app parte vuota e i dati restano nella cartella vecchia */ }
+}
+
+// Mac: aggiornando da una versione col vecchio nome, la nuova app finisce in "Agency Dashboard SMM.app".
+// La si rinomina dopo la chiusura (rinominare un'app aperta la bloccherebbe) e la si riapre: un riavvio veloce.
+function renameOldMacBundle() {
+  if (!IS_MAC || !app.isPackaged) return false;
+  const bundle = path.resolve(process.execPath, '..', '..', '..');
+  const wanted = path.join(path.dirname(bundle), `${app.getName()}.app`);
+  if (path.basename(bundle) !== `${OLD_APP_NAME}.app` || fs.existsSync(wanted)) return false;
+  try {
+    fs.accessSync(path.dirname(bundle), fs.constants.W_OK);
+  } catch (_) {
+    return false;
+  }
+  spawn('/bin/bash', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; if mv "$2" "$3"; then open "$3"; else open "$2"; fi',
+    'rinomina', String(process.pid), bundle, wanted], { detached: true, stdio: 'ignore' }).unref();
+  app.exit(0);
+  return true;
+}
+
 const ICON_PATH = path.join(__dirname, 'build', 'icon.png');
 
 // Impostazioni salvate (tema, icona) lette all'avvio, prima che l'interfaccia sia pronta
@@ -404,7 +445,7 @@ ipcMain.handle('clipboard:write', (_e, text) => {
 ipcMain.handle('data:export', async (_e, data) => {
   const stamp = new Date().toISOString().slice(0, 10);
   const { canceled, filePath } = await dialog.showSaveDialog(win, {
-    defaultPath: `agency-dashboard-smm-backup-${stamp}.json`,
+    defaultPath: `solferino3-dashboard-backup-${stamp}.json`,
     filters: [{ name: 'JSON', extensions: ['json'] }],
   });
   if (canceled || !filePath) return false;
@@ -568,7 +609,7 @@ function notifyUpdate(update) {
   if (notifiedVersion === update.version || !Notification.isSupported()) return;
   notifiedVersion = update.version;
   const n = new Notification({
-    title: `Agency Dashboard SMM ${update.version} disponibile`,
+    title: `${app.getName()} ${update.version} disponibile`,
     body: 'Clicca per aprire l\'app e scaricare la nuova versione.',
     icon: customIcon ? nativeImage.createFromDataURL(customIcon) : ICON_PATH,
   });
@@ -723,7 +764,8 @@ app.on('second-instance', (_e, _argv, _cwd, data) => {
 });
 
 app.whenReady().then(() => {
-  if (!isPrimaryInstance) return;
+  if (!isPrimaryInstance || renameOldMacBundle()) return;
+  migrateOldUserData();
   const settings = readSettings();
   if (THEME_SOURCES.includes(settings.theme)) nativeTheme.themeSource = settings.theme;
   applyIcon(settings.iconData);

@@ -1,4 +1,6 @@
-# Agency Dashboard SMM
+# Solferino 3 Dashboard
+
+(Fino alla versione 1.3 si chiamava *Agency Dashboard SMM*: aggiornando, dati e impostazioni vengono copiati in automatico nella nuova cartella e la vecchia app in Applicazioni viene sostituita.)
 
 Dashboard locale per Mac e Windows (Electron) con link per cliente, strumenti dell'agenzia e piccole utility.
 
@@ -22,7 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/mgallo-solferino3/SMM-Agency-Dashbo
 
 Scarica l'ultima versione da GitHub con `curl` (senza la "quarantena" del browser, quindi macOS non blocca l'app), chiude l'app se è aperta, la installa in Applicazioni e la apre. Funziona anche per aggiornare. I dati restano quelli di prima.
 
-Se invece si scarica il `.dmg` dal browser, macOS può bloccare l'app (l'icona saltella nel Dock senza aprirsi, "Apri comunque" non funziona) perché non è firmata con un Apple Developer ID. Si sblocca con `xattr -cr "/Applications/Agency Dashboard SMM.app"` nel Terminale.
+Se invece si scarica il `.dmg` dal browser, macOS può bloccare l'app (l'icona saltella nel Dock senza aprirsi, "Apri comunque" non funziona) perché non è firmata con un Apple Developer ID. Si sblocca con `xattr -cr "/Applications/Solferino 3 Dashboard.app"` nel Terminale.
 
 Dalla 1.2.2 gli aggiornamenti successivi si installano dall'app con **Installa e riavvia**.
 
@@ -40,7 +42,7 @@ Il file `.dmg` compare nella cartella `dist/`.
 npm run dist:win
 ```
 
-Si può lanciare anche dal Mac. Il file `Agency Dashboard SMM Setup 1.0.0.exe` compare in `dist/`: un doppio clic installa l'app per l'utente corrente (senza permessi di amministratore) e crea i collegamenti su Desktop e menu Start. L'installer non è firmato: al primo avvio Windows SmartScreen mostra un avviso → **Ulteriori informazioni** → **Esegui comunque**.
+Si può lanciare anche dal Mac. Il file `Solferino 3 Dashboard Setup <versione>.exe` compare in `dist/`: un doppio clic installa l'app per l'utente corrente (senza permessi di amministratore) e crea i collegamenti su Desktop e menu Start. L'installer non è firmato: al primo avvio Windows SmartScreen mostra un avviso → **Ulteriori informazioni** → **Esegui comunque**.
 
 Su Windows la tendina "App di Windows" negli strumenti elenca i collegamenti del menu Start.
 
@@ -98,8 +100,8 @@ Premi **Modifica** in alto a destra per modificare o eliminare link, clienti e s
 ## Dati e backup
 
 I dati sono salvati in locale in
-`~/Library/Application Support/Agency Dashboard SMM/dashboard-data.json` (Mac) o
-`%APPDATA%\Agency Dashboard SMM\dashboard-data.json` (Windows).
+`~/Library/Application Support/Solferino 3 Dashboard/dashboard-data.json` (Mac) o
+`%APPDATA%\Solferino 3 Dashboard\dashboard-data.json` (Windows).
 Dal menu laterale puoi esportare e importare un backup JSON.
 
 ## Struttura
