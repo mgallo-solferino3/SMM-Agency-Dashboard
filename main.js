@@ -147,6 +147,7 @@ function createWindow() {
   win.on('focus', () => {
     hideWidget();
     checkForUpdateIfStale();
+    syncAsanaIfStale();
   });
   win.on('closed', () => {
     // Distrugge il widget: altrimenti conterebbe come finestra aperta e 'activate' non ricreerebbe la principale
@@ -762,6 +763,160 @@ app.on('second-instance', (_e, _argv, _cwd, data) => {
   restoreMainWindow();
 });
 
+// ---- Asana: task aperti assegnati a me, con notifica di sistema per quelli nuovi ----
+// Token e task stanno in un file a parte, non nei dati della dashboard: così il token non finisce nei backup esportati.
+const ASANA_API = 'https://app.asana.com/api/1.0';
+const ASANA_FILE = () => path.join(app.getPath('userData'), 'asana.json');
+const ASANA_POLL_MS = 2 * 60 * 1000;
+const ASANA_FOCUS_MIN_GAP_MS = 30 * 1000;
+const ASANA_MAX_PAGES = 5; // fino a 500 task per spazio di lavoro
+const ASANA_NOTIFY_MAX = 3; // oltre, una sola notifica col totale
+const ASANA_KNOWN_MAX = 5000;
+const ASANA_TASK_FIELDS = 'name,due_on,due_at,permalink_url,projects.name';
+const ASANA_EMPTY = { token: '', user: '', tasks: [], known: [], unseen: [], syncedAt: 0, error: '' };
+
+let asana = { ...ASANA_EMPTY };
+let asanaSyncing = false;
+let lastAsanaAttempt = 0;
+
+function loadAsana() {
+  try {
+    asana = { ...ASANA_EMPTY, ...JSON.parse(fs.readFileSync(ASANA_FILE(), 'utf8')) };
+  } catch (_) {}
+}
+
+function saveAsana() {
+  const file = ASANA_FILE();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file + '.tmp', JSON.stringify(asana), 'utf8');
+  fs.renameSync(file + '.tmp', file);
+}
+
+// Stato per l'interfaccia, senza il token
+const asanaPublic = () => ({ connected: !!asana.token, user: asana.user, tasks: asana.tasks, unseen: asana.unseen,
+  syncedAt: asana.syncedAt, error: asana.error, syncing: asanaSyncing });
+
+function sendAsana() {
+  if (win && !win.isDestroyed()) win.webContents.send('asana:update', asanaPublic());
+}
+
+async function asanaGet(pathname, params, token = asana.token) {
+  const u = new URL(ASANA_API + pathname);
+  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+  const res = await net.fetch(u.toString(), { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }, cache: 'no-store' });
+  if (res.status === 401) throw new Error('Token Asana non valido o revocato: inseriscine uno nuovo');
+  if (res.status === 429) throw new Error('Troppe richieste ad Asana: riprovo al prossimo controllo');
+  if (!res.ok) throw new Error(`Asana non raggiungibile (${res.status})`);
+  return res.json();
+}
+
+// Task non completati assegnati a me, in tutti gli spazi di lavoro
+async function fetchMyAsanaTasks() {
+  const me = (await asanaGet('/users/me', { opt_fields: 'name,workspaces.name' })).data;
+  const tasks = [];
+  for (const ws of me.workspaces || []) {
+    let offset;
+    for (let i = 0; i < ASANA_MAX_PAGES; i++) {
+      const params = { assignee: 'me', workspace: ws.gid, completed_since: 'now', limit: '100', opt_fields: ASANA_TASK_FIELDS };
+      if (offset) params.offset = offset;
+      const res = await asanaGet('/tasks', params);
+      for (const t of res.data || []) {
+        tasks.push({ gid: t.gid, name: t.name || '(senza titolo)', due: t.due_on || (t.due_at || '').slice(0, 10),
+          url: t.permalink_url, projects: (t.projects || []).map((p) => p.name).filter(Boolean), workspace: ws.name });
+      }
+      offset = res.next_page?.offset;
+      if (!offset) break;
+    }
+  }
+  return { user: me.name, tasks };
+}
+
+function notifyAsana(fresh) {
+  if (!fresh.length || !Notification.isSupported()) return;
+  const notifIcon = customIcon ? nativeImage.createFromDataURL(customIcon) : ICON_PATH;
+  if (fresh.length > ASANA_NOTIFY_MAX) {
+    const n = new Notification({ title: `${fresh.length} nuovi task Asana`,
+      body: fresh.slice(0, ASANA_NOTIFY_MAX).map((t) => t.name).join('\n') + '\n…', icon: notifIcon });
+    n.on('click', () => {
+      hideWidget();
+      restoreMainWindow();
+    });
+    n.show();
+    return;
+  }
+  for (const t of fresh) {
+    const n = new Notification({ title: 'Nuovo task Asana', body: [t.name, t.projects.join(', ')].filter(Boolean).join('\n'), icon: notifIcon });
+    n.on('click', () => openExternalSafe(t.url));
+    n.show();
+  }
+}
+
+async function syncAsana() {
+  if (!asana.token || asanaSyncing) return asanaPublic();
+  asanaSyncing = true;
+  lastAsanaAttempt = Date.now();
+  sendAsana();
+  const token = asana.token;
+  try {
+    const { user, tasks } = await fetchMyAsanaTasks();
+    // Token cambiato o scollegato durante il controllo: questi task non valgono più
+    if (asana.token !== token) {
+      asanaSyncing = false;
+      return syncAsana();
+    }
+    // Al primo controllo dopo il collegamento i task già presenti non sono "nuovi"
+    const firstSync = !asana.syncedAt;
+    const known = new Set(asana.known);
+    const fresh = tasks.filter((t) => !known.has(t.gid));
+    const open = new Set(tasks.map((t) => t.gid));
+    if (!firstSync) notifyAsana(fresh);
+    Object.assign(asana, {
+      user, tasks, syncedAt: Date.now(), error: '',
+      // I task già visti restano noti anche se completati: riaperti non tornano "nuovi"
+      known: [...new Set([...asana.known, ...open])].slice(-ASANA_KNOWN_MAX),
+      unseen: firstSync ? [] : [...asana.unseen.filter((g) => open.has(g)), ...fresh.map((t) => t.gid)],
+    });
+  } catch (err) {
+    if (asana.token !== token) {
+      asanaSyncing = false;
+      return syncAsana();
+    }
+    asana.error = String((err && err.message) || err);
+  }
+  asanaSyncing = false;
+  saveAsana();
+  sendAsana();
+  return asanaPublic();
+}
+
+function syncAsanaIfStale() {
+  if (Date.now() - lastAsanaAttempt > ASANA_FOCUS_MIN_GAP_MS) syncAsana();
+}
+
+ipcMain.handle('asana:get', () => asanaPublic());
+ipcMain.handle('asana:sync', () => syncAsana());
+ipcMain.handle('asana:seen', () => {
+  asana.unseen = [];
+  saveAsana();
+  sendAsana();
+});
+// Token vuoto = scollega
+ipcMain.handle('asana:connect', async (_e, token) => {
+  token = String(token || '').trim();
+  if (token) {
+    try {
+      await asanaGet('/users/me', { opt_fields: 'name' }, token);
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) };
+    }
+  }
+  asana = { ...ASANA_EMPTY, token };
+  saveAsana();
+  if (token) await syncAsana();
+  else sendAsana();
+  return { ok: true };
+});
+
 app.whenReady().then(() => {
   if (!isPrimaryInstance || renameOldMacBundle()) return;
   migrateOldUserData();
@@ -778,6 +933,10 @@ app.whenReady().then(() => {
   // Il controllo gira nel processo principale: funziona anche con la finestra chiusa (Mac) o ridotta a icona
   setInterval(checkForUpdate, UPDATE_POLL_MS);
   powerMonitor.on('resume', checkForUpdateIfStale);
+  loadAsana();
+  syncAsana();
+  setInterval(syncAsana, ASANA_POLL_MS);
+  powerMonitor.on('resume', syncAsanaIfStale);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

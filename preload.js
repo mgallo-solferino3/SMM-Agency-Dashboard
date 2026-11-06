@@ -18,4 +18,9 @@ contextBridge.exposeInMainWorld('api', {
   onUpdateProgress: (cb) => ipcRenderer.on('update:progress', (_e, progress) => cb(progress)),
   setAppearance: (appearance) => ipcRenderer.invoke('appearance:set', appearance),
   setIcon: (dataUrl) => ipcRenderer.invoke('icon:set', dataUrl),
+  asanaGet: () => ipcRenderer.invoke('asana:get'),
+  asanaSync: () => ipcRenderer.invoke('asana:sync'),
+  asanaSeen: () => ipcRenderer.invoke('asana:seen'),
+  asanaConnect: (token) => ipcRenderer.invoke('asana:connect', token),
+  onAsana: (cb) => ipcRenderer.on('asana:update', (_e, s) => cb(s)),
 });

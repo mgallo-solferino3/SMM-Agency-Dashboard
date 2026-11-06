@@ -310,3 +310,5 @@ button.icon .fa-icon { width: 12px; height: 12px; vertical-align: -1px; }
 .sheet-status { font-size: 12px; color: var(--muted); }
 .sheet-status.error { color: var(--danger); }
 button .fa-icon { vertical-align: -0.125em; }
+.nav-badge { margin-left: auto; min-width: 18px; padding: 1px 6px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; text-align: center; }
+.new-tag { margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 700; vertical-align: 1px; }

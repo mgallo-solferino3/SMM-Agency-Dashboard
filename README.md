@@ -66,6 +66,7 @@ L'app si può aprire una sola volta: aprendola di nuovo torna in primo piano la 
 - **Clienti**: un blocco per cliente con i suoi link (sito, admin, Analytics, ecc.).
 - **Strumenti**: link dell'agenzia raggruppati per categoria.
 - **To-do**, **Note** (salvataggio automatico), **Appunti**, **Snippet** copiabili con un clic.
+- **Asana**: i task aperti assegnati a te (scaduti, oggi, prossimi, senza scadenza), con un clic si aprono in Asana. L'app controlla ogni 2 minuti, anche con la finestra chiusa o ridotta a icona: per ogni task nuovo arriva un avviso di sistema e nel menu compare il numero dei task nuovi. Per collegarla serve un token personale (Asana → Console per sviluppatori → *Crea nuovo token*), salvato solo su quel computer in `asana.json`, accanto a `dashboard-data.json`, quindi non finisce nei backup esportati.
 - **Impostazioni**: profilo, tema (automatico, chiaro, scuro), palette di colori (predefinita "Solferino 3", colore #6295A5), colore principale e icona dell'app (predefinita #6295A5, rosa e altre varianti di colore o immagine propria).
 
 ### Profili

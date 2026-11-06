@@ -364,6 +364,7 @@ const COMMON_PAGES = [
   { id: 'tools', label: 'Strumenti', icon: 'screwdriver-wrench' },
   { id: 'idee', label: 'Idee', icon: 'lightbulb' },
   { id: 'todos', label: 'To-do', icon: 'square-check' },
+  { id: 'asana', label: 'Asana', icon: 'bell' },
   { id: 'notes', label: 'Note', icon: 'pen-to-square' },
   { id: 'appunti', label: 'Appunti', icon: 'note-sticky' },
   { id: 'snippets', label: 'Snippet', icon: 'quote-left' },
@@ -401,8 +402,10 @@ const toolPageIds = () => [...profilePages(), ...extraPages()].map((p) => p.id);
 const visiblePages = () => [...COMMON_PAGES, ...profilePages(), ...extraPages(), SETTINGS_PAGE];
 
 function navItem(p, extraClass = '') {
+  const count = p.id === 'asana' ? asanaState.unseen.length : 0;
   return h('button', { class: `nav-item${p.id === page ? ' active' : ''}${extraClass}`, onclick: () => go(p.id) },
-    h('span', { class: 'nav-icon' }, icon(p.icon)), p.label);
+    h('span', { class: 'nav-icon' }, icon(p.icon)), p.label,
+    count > 0 && h('span', { class: 'nav-badge', title: 'Task nuovi' }, count));
 }
 
 function renderNav() {
@@ -418,6 +421,7 @@ function renderNav() {
 }
 
 function go(id) {
+  if (page === 'asana' && id !== 'asana') asanaHighlight = new Set();
   page = id;
   editing = false;
   if (id !== 'home') query = '';
@@ -440,7 +444,7 @@ function render() {
   view.innerHTML = '';
   const renderers = { home: renderHome, tools: renderTools, idee: renderIdee, todos: renderTodos,
     notes: renderNotes, appunti: renderAppunti, utm: renderUtm, snippets: renderSnippets,
-    palette: renderPalette, pixieset: renderPixieset, settings: renderSettings };
+    palette: renderPalette, pixieset: renderPixieset, asana: renderAsana, settings: renderSettings };
   (renderers[page] || ((v) => renderRecords(v, page)))(view);
 }
 
@@ -1337,6 +1341,96 @@ function renderPixieset(view) {
   fill();
 }
 
+// --- ASANA: task aperti assegnati a me (li legge il processo principale, che avvisa dei nuovi)
+let asanaState = { connected: false, user: '', tasks: [], unseen: [], syncedAt: 0, error: '', syncing: false };
+// Task segnati "Nuovo" nella sezione: restano evidenziati finché la si lascia, anche dopo averli segnati come visti
+let asanaHighlight = new Set();
+
+function onAsanaUpdate(s) {
+  asanaState = s;
+  if (page === 'asana' && s.unseen.length) {
+    s.unseen.forEach((g) => asanaHighlight.add(g));
+    window.api.asanaSeen();
+  }
+  if (page === 'asana') render();
+  else renderNav();
+}
+
+function connectAsana() {
+  openForm({ title: 'Collega Asana', submitLabel: 'Collega',
+    fields: [{ name: 'token', label: 'Token personale di Asana', value: '', placeholder: 'Incollalo qui' }],
+    onSubmit: async (v) => {
+      if (!v.token) return;
+      toast('Collegamento ad Asana…');
+      const res = await window.api.asanaConnect(v.token);
+      toast(res.ok ? 'Asana collegato' : res.error);
+    } });
+}
+
+function disconnectAsana() {
+  confirmBox('Scollegare Asana? Il token viene cancellato da questo computer.', async () => {
+    await window.api.asanaConnect('');
+    toast('Asana scollegato');
+  }, 'Scollega');
+}
+
+function asanaRow(t, showWorkspace) {
+  const overdue = !!t.due && t.due < todayISO();
+  const meta = [...t.projects, showWorkspace && t.workspace].filter(Boolean);
+  return h('div', { class: 'record clickable', title: t.url, onclick: () => window.api.openExternal(t.url) },
+    dateBlock(t.due, overdue),
+    h('div', { class: 'record-main' },
+      h('div', { class: 'record-title' }, t.name, asanaHighlight.has(t.gid) && h('span', { class: 'new-tag' }, 'Nuovo')),
+      meta.length > 0 && h('div', { class: 'record-meta' }, meta.join(' · '))),
+    h('button', { class: 'ghost small' }, 'Apri'));
+}
+
+function renderAsana(view) {
+  const a = asanaState;
+  if (!a.connected) {
+    view.append(
+      h('div', { class: 'empty' }, 'Collega il tuo account Asana: qui vedi i task aperti assegnati a te e ricevi un avviso quando ne arriva uno nuovo.'),
+      h('div', { class: 'row', style: 'margin-bottom:12px' },
+        h('button', { class: 'primary', onclick: connectAsana }, 'Collega Asana'),
+        h('button', { class: 'ghost', onclick: () => window.api.openExternal('https://app.asana.com/0/my-apps') }, 'Crea il token su Asana')),
+      h('div', { class: 'hint' }, 'Su Asana: Console per sviluppatori → "Crea nuovo token" → copia il token e incollalo in "Collega Asana". '
+        + 'Il token resta solo su questo computer e non finisce nei backup.'));
+    return;
+  }
+  if (a.unseen.length) {
+    a.unseen.forEach((g) => asanaHighlight.add(g));
+    a.unseen = [];
+    window.api.asanaSeen();
+  }
+
+  const syncedTime = a.syncedAt && new Date(a.syncedAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  const status = a.syncing ? 'Aggiornamento…' : a.error || (syncedTime ? `Aggiornato alle ${syncedTime}` : '');
+  view.append(h('div', { class: 'row', style: 'margin-bottom:12px; align-items:center; flex-wrap:wrap' },
+    h('button', { class: 'ghost', disabled: a.syncing, onclick: () => window.api.asanaSync() }, icon('rotate'), ' Aggiorna'),
+    h('button', { class: 'ghost', onclick: connectAsana }, icon('key'), ' Cambia token'),
+    h('button', { class: 'ghost', onclick: disconnectAsana }, 'Scollega'),
+    status && h('span', { class: 'sheet-status' + (a.error ? ' error' : '') }, status)));
+
+  if (!a.tasks.length) {
+    view.append(h('div', { class: 'empty' }, a.syncedAt ? 'Nessun task aperto assegnato a te.' : 'Caricamento dei task…'));
+    return;
+  }
+  const today = todayISO();
+  const showWorkspace = new Set(a.tasks.map((t) => t.workspace)).size > 1;
+  const sorted = [...a.tasks].sort((x, y) => (x.due || '9999').localeCompare(y.due || '9999'));
+  const groups = [
+    ['Scaduti', sorted.filter((t) => t.due && t.due < today)],
+    ['Oggi', sorted.filter((t) => t.due === today)],
+    ['Prossimi', sorted.filter((t) => t.due > today)],
+    ['Senza scadenza', sorted.filter((t) => !t.due)],
+  ];
+  for (const [title, list] of groups) {
+    if (!list.length) continue;
+    view.append(h('div', { class: 'section-title' }, `${title} (${list.length})`),
+      h('div', { class: 'card records' }, list.map((t) => asanaRow(t, showWorkspace))));
+  }
+}
+
 // ---------- Aspetto ----------
 const PALETTES = [
   // Predefinita: colore principale Solferino 3 #6295A5
@@ -1618,6 +1712,8 @@ async function boot() {
       const s = $('#search'); if (s) { s.focus(); s.select(); }
     }
   });
+  asanaState = await window.api.asanaGet();
+  window.api.onAsana(onAsanaUpdate);
   render();
   window.api.onUpdate(showUpdate);
   window.api.onUpdateProgress(showUpdateProgress);
