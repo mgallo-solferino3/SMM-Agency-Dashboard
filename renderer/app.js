@@ -421,6 +421,7 @@ function renderNav() {
 }
 
 function go(id) {
+  if (flushAppunto) { flushAppunto(); stopAppuntoAutosave(); }
   if (page === 'asana' && id !== 'asana') asanaHighlight = new Set();
   page = id;
   editing = false;
@@ -729,25 +730,68 @@ function formatDate(iso) {
   if (isNaN(d)) return iso;
   return d.toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
 }
+// Salvataggio automatico dell'appunto aperto: ogni 30 secondi e uscendo dalla sezione
+const APPUNTO_AUTOSAVE_MS = 30 * 1000;
+let appuntoAutosaveTimer = null;
+let flushAppunto = null;
+
+function stopAppuntoAutosave() {
+  clearInterval(appuntoAutosaveTimer);
+  appuntoAutosaveTimer = null;
+  flushAppunto = null;
+}
+
 function appuntoForm(a) {
+  // Un ridisegno ricrea il modulo: prima si salva quanto scritto in quello precedente
+  if (flushAppunto) flushAppunto();
+  stopAppuntoAutosave();
   const titleInput = h('input', { type: 'text', value: a?.title || '', placeholder: 'Es. Riunione cliente' });
   const dateInput = h('input', { type: 'date', value: a?.date || todayISO() });
   const rte = richTextInput(a?.html || '');
-  const cancelBtn = h('button', { type: 'button', class: 'ghost', onclick: () => { appuntoFormFor = null; render(); } }, 'Annulla');
+  const content = rte.querySelector('.rte-content');
+  const status = h('span', { class: 'sheet-status' });
+  const read = () => ({ title: titleInput.value.trim(), date: dateInput.value || todayISO(), html: content.innerHTML.trim() });
+  let lastSaved = JSON.stringify(read());
+
+  // Senza titolo si salva come "Senza titolo"; un appunto nuovo e vuoto non si salva
+  const autosave = () => {
+    const v = read();
+    const snapshot = JSON.stringify(v);
+    if (snapshot === lastSaved || (!a && !v.title && !content.textContent.trim())) return;
+    lastSaved = snapshot;
+    const data = { ...v, title: v.title || 'Senza titolo' };
+    if (a) Object.assign(a, data);
+    else {
+      a = { id: uid(), ...data };
+      state.appunti.push(a);
+      if (appuntoFormFor === 'new') appuntoFormFor = a.id; // da qui in poi il modulo modifica l'appunto appena creato
+    }
+    save();
+    status.textContent = `Salvato automaticamente alle ${new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
+    cancelBtn.textContent = 'Chiudi'; // le modifiche sono già salvate: non c'è più niente da annullare
+  };
+
+  const cancelBtn = h('button', { type: 'button', class: 'ghost', onclick: () => { stopAppuntoAutosave(); appuntoFormFor = null; render(); } }, 'Annulla');
   const saveBtn = h('button', { type: 'button', class: 'primary', onclick: () => {
-    const title = titleInput.value.trim();
-    if (!title) return titleInput.focus();
-    const html = rte.querySelector('.rte-content').innerHTML.trim();
-    const date = dateInput.value || todayISO();
-    if (a) { a.title = title; a.date = date; a.html = html; }
-    else state.appunti.push({ id: uid(), title, date, html });
+    const v = read();
+    if (!v.title) return titleInput.focus();
+    if (a) Object.assign(a, v);
+    else state.appunti.push({ id: uid(), ...v });
+    stopAppuntoAutosave();
     appuntoFormFor = null; save(); render();
   } }, 'Salva');
-  return h('div', { class: 'card appunto-form' },
+  const form = h('div', { class: 'card appunto-form' },
     h('label', { class: 'field' }, h('span', null, 'Titolo'), titleInput),
     h('label', { class: 'field' }, h('span', null, 'Data'), dateInput),
     h('label', { class: 'field' }, h('span', null, 'Testo'), rte),
-    h('div', { class: 'modal-actions' }, cancelBtn, saveBtn));
+    h('div', { class: 'modal-actions', style: 'align-items:center' }, status, h('span', { style: 'flex:1' }), cancelBtn, saveBtn));
+
+  flushAppunto = autosave;
+  appuntoAutosaveTimer = setInterval(() => {
+    if (form.isConnected) autosave();
+    else stopAppuntoAutosave();
+  }, APPUNTO_AUTOSAVE_MS);
+  return form;
 }
 function renderAppunti(view) {
   view.append(h('div', { class: 'row', style: 'margin-bottom:14px' },
