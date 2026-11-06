@@ -25,15 +25,35 @@ const CHROME_EXE_WIN = () => [
   process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA,
 ].filter(Boolean).map((d) => path.join(d, 'Google', 'Chrome', 'Application', 'chrome.exe')).find((f) => fs.existsSync(f));
 
-function findChromeProfileDir(profileName) {
+// Profili di Chrome: { cartella: { name, user_name (email dell'account), … } }
+function readChromeProfiles() {
   try {
-    const state = JSON.parse(fs.readFileSync(CHROME_LOCAL_STATE, 'utf8'));
-    const cache = state.profile?.info_cache || {};
-    for (const [dir, info] of Object.entries(cache)) {
-      if (info.name === profileName) return dir;
-    }
-  } catch (_) {}
+    return JSON.parse(fs.readFileSync(CHROME_LOCAL_STATE, 'utf8')).profile?.info_cache || {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function findChromeProfileDir(profileName) {
+  for (const [dir, info] of Object.entries(readChromeProfiles())) {
+    if (info.name === profileName) return dir;
+  }
   return null;
+}
+
+function openInChromeProfile(profileDir, url) {
+  if (IS_MAC) {
+    // -n forza un nuovo processo: senza, se Chrome e' gia' aperto, "open" si limita ad
+    // attivarlo ignorando --profile-directory e l'URL finisce nel profilo gia' in uso.
+    execFile('open', ['-na', 'Google Chrome', '--args', `--profile-directory=${profileDir}`, url]);
+    return true;
+  }
+  const chromeExe = IS_WIN && CHROME_EXE_WIN();
+  if (chromeExe) {
+    execFile(chromeExe, [`--profile-directory=${profileDir}`, url]);
+    return true;
+  }
+  return false;
 }
 
 const DATA_FILE = () => path.join(app.getPath('userData'), 'dashboard-data.json');
@@ -291,9 +311,12 @@ function findAppByName(name) {
   return hit ? hit.path : null;
 }
 
-function openExternalSafe(url) {
+// chromeProfile: cartella del profilo Chrome scelto per lo strumento (vince sulle app desktop)
+function openExternalSafe(url, chromeProfile = '') {
   try {
     const u = new URL(url);
+    const isWeb = u.protocol === 'http:' || u.protocol === 'https:';
+    if (chromeProfile && isWeb && readChromeProfiles()[chromeProfile] && openInChromeProfile(chromeProfile, u.toString())) return true;
     // Scorciatoia a un'app (file:///Applications/Nome.app o file:///C:/…/Nome.lnk)
     if (u.protocol === 'file:') {
       const appPath = fileURLToPath(u);
@@ -310,21 +333,8 @@ function openExternalSafe(url) {
       openApp(desktopAppPath);
       return true;
     }
-    const profileName = CHROME_PROFILE_BY_HOST[u.hostname];
-    if (profileName) {
-      const profileDir = findChromeProfileDir(profileName);
-      if (profileDir && IS_MAC) {
-        // -n forza un nuovo processo: senza, se Chrome e' gia' aperto, "open" si limita ad
-        // attivarlo ignorando --profile-directory e l'URL finisce nel profilo gia' in uso.
-        execFile('open', ['-na', 'Google Chrome', '--args', `--profile-directory=${profileDir}`, u.toString()]);
-        return true;
-      }
-      const chromeExe = IS_WIN && CHROME_EXE_WIN();
-      if (profileDir && chromeExe) {
-        execFile(chromeExe, [`--profile-directory=${profileDir}`, u.toString()]);
-        return true;
-      }
-    }
+    const profileDir = CHROME_PROFILE_BY_HOST[u.hostname] && findChromeProfileDir(CHROME_PROFILE_BY_HOST[u.hostname]);
+    if (profileDir && openInChromeProfile(profileDir, u.toString())) return true;
     if (u.protocol === 'http:' || u.protocol === 'https:' || u.protocol === 'mailto:') {
       shell.openExternal(u.toString());
       return true;
@@ -351,7 +361,12 @@ ipcMain.handle('data:save', (_e, data) => {
   return true;
 });
 
-ipcMain.handle('open:external', (_e, url) => openExternalSafe(String(url)));
+ipcMain.handle('open:external', (_e, url, chromeProfile) => openExternalSafe(String(url), String(chromeProfile || '')));
+
+// Profili di Chrome per la scelta nel modulo degli strumenti, con l'email dell'account se c'è
+ipcMain.handle('chrome:profiles', () => Object.entries(readChromeProfiles())
+  .map(([dir, info]) => ({ dir, name: String(info.name || dir), email: String(info.user_name || '') }))
+  .sort((a, b) => a.name.localeCompare(b.name, 'it')));
 
 // ---- Aspetto: tema chiaro/scuro, colori della barra del titolo, icona ----
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;

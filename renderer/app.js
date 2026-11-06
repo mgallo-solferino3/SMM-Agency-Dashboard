@@ -174,7 +174,7 @@ function openForm({ title, fields, submitLabel = 'Salva', onSubmit }) {
   const inputs = {};
   const iconSetters = {};
   const form = h('form', { method: 'dialog' }, h('h2', null, title));
-  for (const f of fields) {
+  for (const f of fields.filter(Boolean)) {
     let input;
     if (f.type === 'app') {
       form.append(h('label', { class: 'field' }, h('span', null, f.label), appSelect(f.value, inputs, iconSetters)));
@@ -474,12 +474,16 @@ function linkTile(item, { sub, onEdit, onDelete } = {}) {
     badge = h('div', { class: 'badge', style: `background:${colorFor(item.label)}` }, (item.label[0] || '?').toUpperCase());
   }
 
+  // Profilo Chrome scelto per lo strumento: si vede sotto il nome
+  const profile = item.chromeProfile && chromeProfileOf(item);
+  const open = () => window.api.openExternal(normalizeUrl(item.url), item.chromeProfile || '');
   const tile = h('div', { class: 'link-tile', role: 'button', tabindex: '0',
-    onclick: (e) => { if (e.target.closest('.tile-actions')) return; window.api.openExternal(normalizeUrl(item.url)); },
-    onkeydown: (e) => { if (e.key === 'Enter') window.api.openExternal(normalizeUrl(item.url)); },
-    title: item.url },
+    onclick: (e) => { if (e.target.closest('.tile-actions')) return; open(); },
+    onkeydown: (e) => { if (e.key === 'Enter') open(); },
+    title: profile ? `${item.url}\nSi apre con il profilo Chrome "${profileLabel(profile)}"` : item.url },
     badge,
-    h('div', { class: 'meta' }, h('div', { class: 'name' }, item.label), h('div', { class: 'sub' }, sub || hostOf(item.url))),
+    h('div', { class: 'meta' }, h('div', { class: 'name' }, item.label),
+      h('div', { class: 'sub' }, [sub || hostOf(item.url), profile && `👤 ${profile.name}`].filter(Boolean).join(' · '))),
     (onEdit || onDelete) && h('div', { class: 'tile-actions' },
       onEdit && h('button', { class: 'icon', title: 'Modifica', onclick: onEdit }, icon('pen')),
       onDelete && h('button', { class: 'icon', title: 'Elimina', onclick: onDelete }, icon('xmark')))
@@ -545,10 +549,19 @@ function linkFields(l = {}) {
 }
 
 // --- STRUMENTI / LIBRERIE / IDEE (liste di link raggruppate per categoria)
+// Profili di Chrome (letti all'avvio): uno strumento può aprirsi sempre con un certo account
+let chromeProfiles = [];
+const profileLabel = (p) => (p.email && p.email !== p.name ? `${p.name} — ${p.email}` : p.name);
+const chromeProfileOf = (item) => chromeProfiles.find((p) => p.dir === item.chromeProfile);
+
 function toolFields(t = {}) {
+  const profileField = chromeProfiles.length > 0 && { name: 'chromeProfile', type: 'select', label: 'Apri con il profilo Chrome',
+    value: t.chromeProfile || '', options: [{ value: '', label: 'Quello già aperto (predefinito)' },
+      ...chromeProfiles.map((p) => ({ value: p.dir, label: profileLabel(p) }))] };
   return [
     { name: 'app', type: 'app', label: `${APP_KIND} (facoltativo)`, value: isAppUrl(t.url) ? appUrlToPath(t.url) : '' },
     ...linkFields(t),
+    profileField,
     { name: 'category', label: 'Categoria', value: t.category || '', placeholder: 'Es. Marketing' },
     { name: 'icon', type: 'icon', label: 'Icona (emoji, URL o immagine)', value: t.icon || '', placeholder: 'Es. 🎨 oppure https://…/icon.png' }];
 }
@@ -557,7 +570,7 @@ function renderLinkSection(view, key, { addLabel, singular }) {
     h('button', { class: 'primary', onclick: () => openForm({ title: `Nuovo ${singular}`, fields: toolFields(),
       onSubmit: (v) => {
         if (!v.label || !v.url) return false;
-        state[key].push({ id: uid(), label: v.label, url: normalizeUrl(v.url), category: v.category || 'Altro', icon: v.icon || '' });
+        state[key].push({ id: uid(), label: v.label, url: normalizeUrl(v.url), category: v.category || 'Altro', icon: v.icon || '', chromeProfile: v.chromeProfile || '' });
         save(); render();
       } }) }, `+ ${addLabel}`)));
   const list = state[key];
@@ -570,7 +583,8 @@ function renderLinkSection(view, key, { addLabel, singular }) {
         onEdit: () => openForm({ title: `Modifica ${singular}`, fields: toolFields(t),
           onSubmit: (v) => {
             if (!v.label || !v.url) return false;
-            t.label = v.label; t.url = normalizeUrl(v.url); t.category = v.category || 'Altro'; t.icon = v.icon || ''; save(); render();
+            t.label = v.label; t.url = normalizeUrl(v.url); t.category = v.category || 'Altro'; t.icon = v.icon || '';
+            t.chromeProfile = v.chromeProfile || ''; save(); render();
           } }),
         onDelete: () => { state[key] = state[key].filter((x) => x.id !== t.id); save(); render(); },
       }))));
@@ -1868,6 +1882,7 @@ async function boot() {
       const s = $('#search'); if (s) { s.focus(); s.select(); }
     }
   });
+  chromeProfiles = await window.api.chromeProfiles();
   asanaState = await window.api.asanaGet();
   window.api.onAsana(onAsanaUpdate);
   render();
