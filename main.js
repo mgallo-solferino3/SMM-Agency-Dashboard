@@ -125,8 +125,8 @@ let chromeColors = null;
 const titleBarOverlay = () => {
   if (chromeColors) return { color: chromeColors.bg, symbolColor: chromeColors.fg, height: 40 };
   return nativeTheme.shouldUseDarkColors
-    ? { color: '#141b1d', symbolColor: '#efeeea', height: 40 }
-    : { color: '#f1f6f7', symbolColor: '#1d1d1b', height: 40 };
+    ? { color: '#02182b', symbolColor: '#f2eeec', height: 40 }
+    : { color: '#f2eeec', symbolColor: '#02182b', height: 40 };
 };
 
 // Icona scelta nelle impostazioni (data URL) o null per quella originale
@@ -150,7 +150,7 @@ function createWindow() {
     ...(IS_MAC
       ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 18, y: 18 } }
       : { titleBarStyle: 'hidden', titleBarOverlay: titleBarOverlay(), autoHideMenuBar: true }),
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#141b1d' : '#f1f6f7',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#02182b' : '#f2eeec',
     icon: customIcon ? nativeImage.createFromDataURL(customIcon) : ICON_PATH,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

@@ -1162,9 +1162,14 @@ function parseColors(text) {
     return '#' + (c.length === 3 ? c.replace(/./g, '$&$&') : c);
   }))];
 }
+// Testo scuro o bianco, quello col contrasto maggiore (luminanza WCAG): su #6295A5 vince lo scuro, come sul sito
 function readableOn(hex) {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-  return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? '#1d1d1b' : '#ffffff';
+  const [r, g, b] = [1, 3, 5].map((i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return (l + 0.05) / 0.05 > 1.05 / (l + 0.05) ? '#1d1d1b' : '#ffffff';
 }
 function renderPalette(view) {
   view.append(h('div', { class: 'row', style: 'margin-bottom:14px' },
@@ -1603,10 +1608,10 @@ function renderAsana(view) {
 
 // ---------- Aspetto ----------
 const PALETTES = [
-  // Predefinita: colore principale Solferino 3 #6295A5
+  // Predefinita: i colori di solferino3.it (carta #F2EEEC, notte #02182B, accento #6295A5)
   { id: 'solferino', label: 'Solferino 3',
-    light: { bg: '#f1f6f7', panel: '#ffffff', sidebar: '#e2ecef', line: '#d3e1e5', accent: '#6295a5' },
-    dark: { bg: '#141b1d', panel: '#1e272a', sidebar: '#192124', line: '#2e3b3f', accent: '#6295a5' } },
+    light: { bg: '#f2eeec', panel: '#ffffff', sidebar: '#e7e2df', line: '#d9d6d5', accent: '#6295a5' },
+    dark: { bg: '#02182b', panel: '#04243d', sidebar: '#000b14', line: '#20374a', accent: '#6295a5' } },
   { id: 'rosa', label: 'Rosa',
     light: { bg: '#fcf2f5', panel: '#ffffff', sidebar: '#f7e3e9', line: '#eed6dd', accent: '#2f5bea' },
     dark: { bg: '#1c1719', panel: '#282224', sidebar: '#241c1f', line: '#3e3337', accent: '#7b9bff' } },
@@ -1640,7 +1645,7 @@ function applyAppearance() {
   root.setProperty('--accent', accent);
   root.setProperty('--on-accent', readableOn(accent)); // testo leggibile sui pulsanti principali
   root.setProperty('--accent-soft', `color-mix(in srgb, ${accent} ${dark ? 24 : 13}%, ${c.panel})`);
-  window.api.setAppearance({ theme: s.theme, bg: c.bg, fg: dark ? '#efeeea' : '#1d1d1b' });
+  window.api.setAppearance({ theme: s.theme, bg: c.bg, fg: dark ? '#f2eeec' : '#02182b' });
 }
 darkQuery.addEventListener('change', () => state && applyAppearance());
 
