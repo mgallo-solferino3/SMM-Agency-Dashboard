@@ -23,5 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   asanaSync: () => ipcRenderer.invoke('asana:sync'),
   asanaSeen: () => ipcRenderer.invoke('asana:seen'),
   asanaConnect: (token) => ipcRenderer.invoke('asana:connect', token),
+  asanaUsers: (projectGid) => ipcRenderer.invoke('asana:users', projectGid),
+  asanaCreateTask: (task) => ipcRenderer.invoke('asana:create-task', task),
   onAsana: (cb) => ipcRenderer.on('asana:update', (_e, s) => cb(s)),
 });

@@ -830,6 +830,18 @@ async function asanaGet(pathname, params, token = asana.token) {
   return res.json();
 }
 
+async function asanaPost(pathname, data, params = {}) {
+  const u = new URL(ASANA_API + pathname);
+  for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v);
+  const res = await net.fetch(u.toString(), { method: 'POST', body: JSON.stringify({ data }),
+    headers: { Authorization: `Bearer ${asana.token}`, Accept: 'application/json', 'Content-Type': 'application/json' } });
+  const body = await res.json().catch(() => ({}));
+  if (res.status === 401) throw new Error('Token Asana non valido o revocato: inseriscine uno nuovo');
+  if (res.status === 429) throw new Error('Troppe richieste ad Asana: riprova tra poco');
+  if (!res.ok) throw new Error(body.errors?.[0]?.message ? `Asana: ${body.errors[0].message}` : `Asana non raggiungibile (${res.status})`);
+  return body;
+}
+
 // Tutte le pagine di un elenco (al massimo ASANA_MAX_PAGES)
 async function asanaGetAll(pathname, params) {
   const out = [];
@@ -961,6 +973,50 @@ ipcMain.handle('asana:seen', () => {
   saveAsana();
   sendAsana();
 });
+// Persone a cui assegnare un task nel progetto scelto: tutti gli utenti del suo spazio di lavoro
+const ASANA_GID = /^\d{1,30}$/;
+const ASANA_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const asanaUsersCache = new Map(); // gid spazio di lavoro -> utenti, per tutta la sessione
+const asanaError = (err) => ({ ok: false, error: String((err && err.message) || err) });
+
+ipcMain.handle('asana:users', async (_e, projectGid) => {
+  if (!asana.token || !ASANA_GID.test(String(projectGid))) return { ok: false, error: 'Progetto non valido' };
+  try {
+    const ws = (await asanaGet(`/projects/${projectGid}`, { opt_fields: 'workspace.gid' })).data.workspace.gid;
+    if (!asanaUsersCache.has(ws)) {
+      const users = await asanaGetAll('/users', { workspace: ws, opt_fields: 'name,email' });
+      asanaUsersCache.set(ws, users.map((u) => ({ gid: u.gid, name: u.name || u.email || '(senza nome)', email: u.email || '' }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'it')));
+    }
+    const me = (await asanaGet('/users/me', { opt_fields: 'gid' })).data.gid;
+    return { ok: true, me, users: asanaUsersCache.get(ws) };
+  } catch (err) {
+    return asanaError(err);
+  }
+});
+
+ipcMain.handle('asana:create-task', async (_e, t = {}) => {
+  const name = String(t.name || '').trim();
+  if (!asana.token) return { ok: false, error: 'Asana non è collegato' };
+  if (!name) return { ok: false, error: 'Manca il nome del task' };
+  if (!ASANA_GID.test(String(t.project))) return { ok: false, error: 'Scegli un progetto' };
+  if (t.assignee && !ASANA_GID.test(String(t.assignee))) return { ok: false, error: 'Persona non valida' };
+  if (t.due && !ASANA_DATE.test(String(t.due))) return { ok: false, error: 'Data di scadenza non valida' };
+  try {
+    const task = (await asanaPost('/tasks', {
+      name: name.slice(0, 1024), notes: String(t.notes || '').slice(0, 60000), projects: [String(t.project)],
+      ...(t.assignee ? { assignee: String(t.assignee) } : {}), ...(t.due ? { due_on: t.due } : {}),
+    }, { opt_fields: 'permalink_url' })).data;
+    // Un task che mi assegno da solo non deve arrivare come notifica di "nuovo task"
+    asana.known = [...asana.known, task.gid].slice(-ASANA_KNOWN_MAX);
+    saveAsana();
+    syncAsana();
+    return { ok: true, gid: task.gid, url: task.permalink_url };
+  } catch (err) {
+    return asanaError(err);
+  }
+});
+
 // Token vuoto = scollega
 ipcMain.handle('asana:connect', async (_e, token) => {
   token = String(token || '').trim();
@@ -972,6 +1028,7 @@ ipcMain.handle('asana:connect', async (_e, token) => {
     }
   }
   asana = { ...ASANA_EMPTY, token };
+  asanaUsersCache.clear();
   saveAsana();
   if (token) await syncAsana();
   else sendAsana();

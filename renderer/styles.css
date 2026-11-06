@@ -133,6 +133,9 @@ label.field > span, div.field > span { display: block; font-size: 12px; color: v
 .appunto-body ul, .appunto-body ol { margin: 4px 0; padding-left: 22px; }
 .appunto-body p { margin: 0 0 8px; }
 .appunto-body p:last-child { margin-bottom: 0; }
+.appunto-tasks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.appunto-tasks .chip { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appunto-task-project { color: var(--muted); }
 
 /* Cards & sections */
 .section-title { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 26px 0 10px; font-weight: 600; }

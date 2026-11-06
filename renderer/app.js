@@ -818,15 +818,139 @@ function renderAppunti(view) {
     if (appuntoFormFor === a.id) { view.append(appuntoForm(a)); continue; }
     const body = h('div', { class: 'appunto-body' });
     body.innerHTML = a.html || '';
+    const tasks = a.asanaTasks || [];
     view.append(h('div', { class: 'card appunto' },
       h('div', { class: 'card-head' },
         h('div', { style: 'flex:1; min-width:0' }, h('h3', null, a.title), h('div', { class: 'sub' }, formatDate(a.date))),
+        asanaState.connected && h('button', { class: 'ghost small', title: 'Crea un task su Asana da questo appunto',
+          onclick: () => asanaTaskDialog(a) }, icon('list-check'), ' Task Asana'),
         editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => { appuntoFormFor = a.id; render(); } }, icon('pen')),
         editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => confirmBox(`Eliminare "${a.title}"?`, () => {
           state.appunti = state.appunti.filter((x) => x.id !== a.id); save(); render();
         }) }, icon('xmark'))),
-      body));
+      body,
+      tasks.length > 0 && h('div', { class: 'appunto-tasks' }, tasks.map((t) =>
+        h('button', { class: 'chip', title: 'Apri su Asana', onclick: () => window.api.openExternal(t.url) },
+          icon('list-check'), ' ', t.name, t.project && h('span', { class: 'appunto-task-project' }, ' · ' + t.project))))));
   }
+}
+
+// --- Task Asana da un appunto: nome, descrizione (il testo dell'appunto), progetto, persona e scadenza
+// Testo semplice dall'HTML dell'appunto, con gli elenchi puntati e numerati (DOMParser: niente script o immagini caricati)
+function htmlToText(html) {
+  const lines = [];
+  let line = '';
+  const flush = () => {
+    if (line.trim()) lines.push(line.trim());
+    line = '';
+  };
+  const walk = (node) => {
+    for (const n of node.childNodes) {
+      if (n.nodeType === Node.TEXT_NODE) line += n.textContent;
+      else if (n.nodeType !== Node.ELEMENT_NODE) continue;
+      else if (n.tagName === 'BR') flush();
+      else if (n.tagName === 'UL' || n.tagName === 'OL') {
+        flush();
+        [...n.children].forEach((li, i) => {
+          line = n.tagName === 'OL' ? `${i + 1}. ` : '• ';
+          walk(li);
+          flush();
+        });
+      } else {
+        const block = /^(DIV|P|H[1-6]|LI|BLOCKQUOTE|PRE)$/.test(n.tagName);
+        if (block) flush();
+        walk(n);
+        if (block) flush();
+      }
+    }
+  };
+  walk(new DOMParser().parseFromString(html || '', 'text/html').body);
+  flush();
+  return lines.join('\n');
+}
+
+let lastAsanaTaskProject = ''; // il prossimo task propone lo stesso progetto
+
+function asanaTaskDialog(a) {
+  const dlg = $('#modal');
+  dlg.innerHTML = '';
+  // Prima i preferiti (nell'ordine di Asana), poi gli altri in ordine alfabetico
+  const projects = [...asanaState.projects].sort((x, y) => (x.favorite < 0) - (y.favorite < 0)
+    || (x.favorite >= 0 ? x.favorite - y.favorite : x.name.trim().localeCompare(y.name.trim(), 'it')));
+  const manyWorkspaces = new Set(projects.map((p) => p.workspace)).size > 1;
+  const nameInput = h('input', { type: 'text', value: a.title === 'Senza titolo' ? '' : a.title, placeholder: 'Cosa c\'è da fare' });
+  const notesInput = h('textarea', { rows: 6, value: htmlToText(a.html) });
+  const projectSelect = h('select', null,
+    h('option', { value: '' }, projects.length ? 'Scegli un progetto…' : 'Nessun progetto: aggiorna la sezione Asana'),
+    projects.map((p) => h('option', { value: p.gid, selected: p.gid === lastAsanaTaskProject },
+      manyWorkspaces ? `${p.name} · ${p.workspace}` : p.name)));
+  const userSelect = h('select', { disabled: true }, h('option', { value: '' }, 'Scegli prima il progetto'));
+  const dueInput = h('input', { type: 'date' });
+  const error = h('div', { class: 'sheet-status error' });
+
+  let usersFor = '';
+  const loadUsers = async () => {
+    const project = projectSelect.value;
+    usersFor = project;
+    userSelect.disabled = true;
+    if (!project) return userSelect.replaceChildren(h('option', { value: '' }, 'Scegli prima il progetto'));
+    userSelect.replaceChildren(h('option', { value: '' }, 'Caricamento persone…'));
+    const res = await window.api.asanaUsers(project);
+    if (usersFor !== project) return; // nel frattempo è stato scelto un altro progetto
+    if (!res.ok) {
+      error.textContent = res.error;
+      return userSelect.replaceChildren(h('option', { value: '' }, '— Nessuno —'));
+    }
+    const me = res.users.find((u) => u.gid === res.me);
+    userSelect.replaceChildren(
+      h('option', { value: '' }, '— Nessuno —'),
+      ...(me ? [h('option', { value: me.gid, selected: true }, `Io (${me.name})`)] : []),
+      ...res.users.filter((u) => u !== me).map((u) => h('option', { value: u.gid, title: u.email }, u.name)));
+    userSelect.disabled = false;
+  };
+  projectSelect.addEventListener('change', () => {
+    error.textContent = '';
+    loadUsers();
+  });
+
+  const createBtn = h('button', { type: 'submit', class: 'primary' }, 'Crea task');
+  const form = h('form', { method: 'dialog' }, h('h2', null, 'Nuovo task Asana'),
+    h('label', { class: 'field' }, h('span', null, 'Nome del task'), nameInput),
+    h('label', { class: 'field' }, h('span', null, 'Progetto'), projectSelect),
+    h('div', { class: 'two' },
+      h('label', { class: 'field' }, h('span', null, 'Assegna a'), userSelect),
+      h('label', { class: 'field' }, h('span', null, 'Scadenza'), dueInput)),
+    h('label', { class: 'field' }, h('span', null, 'Descrizione'), notesInput),
+    error,
+    h('div', { class: 'modal-actions' }, h('button', { type: 'button', class: 'ghost', onclick: () => dlg.close() }, 'Annulla'), createBtn));
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    error.textContent = '';
+    const name = nameInput.value.trim();
+    if (!name) return nameInput.focus();
+    if (!projectSelect.value) return projectSelect.focus();
+    createBtn.disabled = true;
+    createBtn.textContent = 'Creazione…';
+    const res = await window.api.asanaCreateTask({ name, notes: notesInput.value.trim(), project: projectSelect.value,
+      assignee: userSelect.disabled ? '' : userSelect.value, due: dueInput.value });
+    createBtn.disabled = false;
+    createBtn.textContent = 'Crea task';
+    if (!res.ok) {
+      error.textContent = res.error;
+      return;
+    }
+    lastAsanaTaskProject = projectSelect.value;
+    const project = projects.find((p) => p.gid === projectSelect.value);
+    a.asanaTasks = [...(a.asanaTasks || []), { gid: res.gid, url: res.url, name, project: project?.name || '' }];
+    save();
+    dlg.close();
+    toast('Task creato su Asana');
+    render();
+  });
+  dlg.append(form);
+  dlg.showModal();
+  nameInput.focus();
+  if (projectSelect.value) loadUsers();
 }
 
 // --- UTM
