@@ -312,3 +312,7 @@ button.icon .fa-icon { width: 12px; height: 12px; vertical-align: -1px; }
 button .fa-icon { vertical-align: -0.125em; }
 .nav-badge { margin-left: auto; min-width: 18px; padding: 1px 6px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; text-align: center; }
 .new-tag { margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 700; vertical-align: 1px; }
+.subtab-count.danger { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.record-meta.overdue { color: var(--danger); }
+.project-tag { margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; vertical-align: 1px; white-space: nowrap;
+  color: var(--tag); background: color-mix(in srgb, var(--tag) 14%, transparent); }

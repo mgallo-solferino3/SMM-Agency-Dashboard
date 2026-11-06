@@ -10,7 +10,9 @@ const IS_WIN = process.platform === 'win32';
 // Hostname -> app desktop da aprire al posto del sito (se installata)
 const APP_BY_HOST = [
   { match: (h) => h === 'dash.cloudflare.com', name: 'Cloudflare' },
-  { match: (h) => h === 'app.asana.com', name: 'Asana' },
+  // I link a una pagina precisa (un task, la console sviluppatori) vanno al browser: è Asana stessa
+  // a passarli all'app desktop se l'utente lo preferisce. Aprendo l'app l'indirizzo andrebbe perso.
+  { match: (h) => h === 'app.asana.com', name: 'Asana', onlyHome: true },
   { match: (h) => h === 'capcut.com' || h.endsWith('.capcut.com'), name: 'CapCut' },
 ];
 
@@ -301,7 +303,8 @@ function openExternalSafe(url) {
       }
       return false;
     }
-    const desktopApp = APP_BY_HOST.find((a) => a.match(u.hostname));
+    const isHome = (u.pathname === '/' || u.pathname === '') && !u.search;
+    const desktopApp = APP_BY_HOST.find((a) => a.match(u.hostname) && (!a.onlyHome || isHome));
     const desktopAppPath = desktopApp && findAppByName(desktopApp.name);
     if (desktopAppPath) {
       openApp(desktopAppPath);
@@ -772,8 +775,10 @@ const ASANA_FOCUS_MIN_GAP_MS = 30 * 1000;
 const ASANA_MAX_PAGES = 5; // fino a 500 task per spazio di lavoro
 const ASANA_NOTIFY_MAX = 3; // oltre, una sola notifica col totale
 const ASANA_KNOWN_MAX = 5000;
-const ASANA_TASK_FIELDS = 'name,due_on,due_at,permalink_url,projects.name';
-const ASANA_EMPTY = { token: '', user: '', tasks: [], known: [], unseen: [], syncedAt: 0, error: '' };
+const ASANA_TASK_FIELDS = 'name,due_on,due_at,permalink_url,projects.name,memberships.project.name,memberships.section.name,parent.name,parent.projects.name';
+const ASANA_PROJECT_FIELDS = 'name,color,permalink_url,members.gid';
+const ASANA_PROJECTS_EVERY_MS = 10 * 60 * 1000; // i progetti cambiano di rado
+const ASANA_EMPTY = { token: '', user: '', tasks: [], projects: [], projectsAt: 0, known: [], unseen: [], syncedAt: 0, error: '' };
 
 let asana = { ...ASANA_EMPTY };
 let asanaSyncing = false;
@@ -793,7 +798,7 @@ function saveAsana() {
 }
 
 // Stato per l'interfaccia, senza il token
-const asanaPublic = () => ({ connected: !!asana.token, user: asana.user, tasks: asana.tasks, unseen: asana.unseen,
+const asanaPublic = () => ({ connected: !!asana.token, user: asana.user, tasks: asana.tasks, projects: asana.projects, unseen: asana.unseen,
   syncedAt: asana.syncedAt, error: asana.error, syncing: asanaSyncing });
 
 function sendAsana() {
@@ -810,25 +815,60 @@ async function asanaGet(pathname, params, token = asana.token) {
   return res.json();
 }
 
+// Tutte le pagine di un elenco (al massimo ASANA_MAX_PAGES)
+async function asanaGetAll(pathname, params) {
+  const out = [];
+  let offset;
+  for (let i = 0; i < ASANA_MAX_PAGES; i++) {
+    const res = await asanaGet(pathname, { ...params, limit: '100', ...(offset ? { offset } : {}) });
+    out.push(...(res.data || []));
+    offset = res.next_page?.offset;
+    if (!offset) break;
+  }
+  return out;
+}
+
+const projectNames = (list) => (list || []).map((p) => p.name).filter(Boolean);
+
+// I sotto-task di solito non sono in un progetto: si mostrano col progetto e il nome del task padre
+function toTask(t, ws) {
+  const own = projectNames(t.projects);
+  return {
+    gid: t.gid, name: t.name || '(senza titolo)', due: t.due_on || (t.due_at || '').slice(0, 10), url: t.permalink_url,
+    projects: own.length ? own : projectNames(t.parent?.projects),
+    parent: t.parent?.name || '',
+    section: (t.memberships || []).map((m) => m.section?.name).find(Boolean) || '',
+    workspace: ws.name,
+  };
+}
+
+// Progetti di cui faccio parte, più i preferiti di Asana (anche se non ne faccio parte)
+async function fetchMyAsanaProjects(me) {
+  const projects = [];
+  for (const ws of me.workspaces || []) {
+    const favorites = await asanaGetAll(`/users/me/favorites`, { resource_type: 'project', workspace: ws.gid, opt_fields: 'gid' });
+    const favOrder = new Map(favorites.map((f, i) => [f.gid, i]));
+    const all = await asanaGetAll('/projects', { workspace: ws.gid, archived: 'false', opt_fields: ASANA_PROJECT_FIELDS });
+    for (const p of all) {
+      const member = (p.members || []).some((m) => m.gid === me.gid);
+      if (!member && !favOrder.has(p.gid)) continue;
+      projects.push({ gid: p.gid, name: p.name || '(senza nome)', url: p.permalink_url, color: p.color || '',
+        favorite: favOrder.has(p.gid) ? favOrder.get(p.gid) : -1, workspace: ws.name });
+    }
+  }
+  return projects;
+}
+
 // Task non completati assegnati a me, in tutti gli spazi di lavoro
 async function fetchMyAsanaTasks() {
   const me = (await asanaGet('/users/me', { opt_fields: 'name,workspaces.name' })).data;
   const tasks = [];
   for (const ws of me.workspaces || []) {
-    let offset;
-    for (let i = 0; i < ASANA_MAX_PAGES; i++) {
-      const params = { assignee: 'me', workspace: ws.gid, completed_since: 'now', limit: '100', opt_fields: ASANA_TASK_FIELDS };
-      if (offset) params.offset = offset;
-      const res = await asanaGet('/tasks', params);
-      for (const t of res.data || []) {
-        tasks.push({ gid: t.gid, name: t.name || '(senza titolo)', due: t.due_on || (t.due_at || '').slice(0, 10),
-          url: t.permalink_url, projects: (t.projects || []).map((p) => p.name).filter(Boolean), workspace: ws.name });
-      }
-      offset = res.next_page?.offset;
-      if (!offset) break;
-    }
+    const list = await asanaGetAll('/tasks', { assignee: 'me', workspace: ws.gid, completed_since: 'now', opt_fields: ASANA_TASK_FIELDS });
+    tasks.push(...list.map((t) => toTask(t, ws)));
   }
-  return { user: me.name, tasks };
+  const refreshProjects = Date.now() - asana.projectsAt > ASANA_PROJECTS_EVERY_MS || !asana.projectsAt;
+  return { user: me.name, tasks, projects: refreshProjects ? await fetchMyAsanaProjects(me) : null };
 }
 
 function notifyAsana(fresh) {
@@ -845,7 +885,8 @@ function notifyAsana(fresh) {
     return;
   }
   for (const t of fresh) {
-    const n = new Notification({ title: 'Nuovo task Asana', body: [t.name, t.projects.join(', ')].filter(Boolean).join('\n'), icon: notifIcon });
+    const where = [t.projects[0], t.parent].filter(Boolean).join(' › ');
+    const n = new Notification({ title: 'Nuovo task Asana', body: [t.name, where].filter(Boolean).join('\n'), icon: notifIcon });
     n.on('click', () => openExternalSafe(t.url));
     n.show();
   }
@@ -858,7 +899,7 @@ async function syncAsana() {
   sendAsana();
   const token = asana.token;
   try {
-    const { user, tasks } = await fetchMyAsanaTasks();
+    const { user, tasks, projects } = await fetchMyAsanaTasks();
     // Token cambiato o scollegato durante il controllo: questi task non valgono più
     if (asana.token !== token) {
       asanaSyncing = false;
@@ -872,6 +913,7 @@ async function syncAsana() {
     if (!firstSync) notifyAsana(fresh);
     Object.assign(asana, {
       user, tasks, syncedAt: Date.now(), error: '',
+      ...(projects ? { projects, projectsAt: Date.now() } : {}),
       // I task già visti restano noti anche se completati: riaperti non tornano "nuovi"
       known: [...new Set([...asana.known, ...open])].slice(-ASANA_KNOWN_MAX),
       unseen: firstSync ? [] : [...asana.unseen.filter((g) => open.has(g)), ...fresh.map((t) => t.gid)],
@@ -894,7 +936,11 @@ function syncAsanaIfStale() {
 }
 
 ipcMain.handle('asana:get', () => asanaPublic());
-ipcMain.handle('asana:sync', () => syncAsana());
+// "Aggiorna" a mano rilegge anche i progetti
+ipcMain.handle('asana:sync', () => {
+  asana.projectsAt = 0;
+  return syncAsana();
+});
 ipcMain.handle('asana:seen', () => {
   asana.unseen = [];
   saveAsana();

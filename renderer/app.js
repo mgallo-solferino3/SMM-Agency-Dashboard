@@ -1386,7 +1386,7 @@ function renderPixieset(view) {
 }
 
 // --- ASANA: task aperti assegnati a me (li legge il processo principale, che avvisa dei nuovi)
-let asanaState = { connected: false, user: '', tasks: [], unseen: [], syncedAt: 0, error: '', syncing: false };
+let asanaState = { connected: false, user: '', tasks: [], projects: [], unseen: [], syncedAt: 0, error: '', syncing: false };
 // Task segnati "Nuovo" nella sezione: restano evidenziati finché la si lascia, anche dopo averli segnati come visti
 let asanaHighlight = new Set();
 
@@ -1418,15 +1418,138 @@ function disconnectAsana() {
   }, 'Scollega');
 }
 
-function asanaRow(t, showWorkspace) {
-  const overdue = !!t.due && t.due < todayISO();
-  const meta = [...t.projects, showWorkspace && t.workspace].filter(Boolean);
+// Scheda (task/progetti), raggruppamento dei task e ricerca: restano finché l'app è aperta
+const asanaView = { tab: 'tasks', groupBy: 'due', query: '' };
+const ASANA_DUE_SOON_DAYS = 7;
+const NO_PROJECT = 'Senza progetto';
+
+// Colori dei progetti di Asana (nomi dell'API) in esadecimale
+const ASANA_COLORS = {
+  'dark-red': '#e8384f', 'dark-orange': '#fd612c', 'light-orange': '#fd9a00', 'dark-brown': '#eec300',
+  'light-green': '#a4cf30', 'dark-green': '#37c5ab', 'light-teal': '#20aaea', 'dark-teal': '#4186e0',
+  'light-blue': '#7a6ff0', 'dark-purple': '#aa62e3', 'light-purple': '#e362e3', 'light-pink': '#ea4e9d',
+  'dark-pink': '#fc91ad', 'light-red': '#8da3a6', 'light-warm-gray': '#8da3a6', 'dark-warm-gray': '#6d6e6f',
+};
+
+const addDaysISO = (iso, n) => new Date(Date.parse(iso + 'T00:00:00Z') + n * 864e5).toISOString().slice(0, 10);
+const daysBetween = (from, to) => Math.round((Date.parse(to) - Date.parse(from)) / 864e5);
+const taskProject = (t) => t.projects[0] || NO_PROJECT;
+const taskMatches = (t, q) => `${t.name} ${t.parent} ${t.projects.join(' ')} ${t.section}`.toLowerCase().includes(q);
+
+// Etichetta del progetto accanto al nome del task, col colore che ha su Asana
+function projectTag(name) {
+  const p = (asanaState.projects || []).find((x) => x.name === name);
+  const color = (p && ASANA_COLORS[p.color]) || colorFor(name);
+  return h('span', { class: 'project-tag', style: `--tag:${color}` }, name.trim());
+}
+
+function asanaRow(t, { showWorkspace } = {}) {
+  const today = todayISO();
+  const overdue = !!t.due && t.due < today;
+  // I sotto-task da soli dicono poco: si mostra anche il task padre
+  const meta = [t.parent && `↳ ${t.parent}`, overdue && `in ritardo di ${daysBetween(t.due, today)} gg`, showWorkspace && t.workspace].filter(Boolean);
   return h('div', { class: 'record clickable', title: t.url, onclick: () => window.api.openExternal(t.url) },
     dateBlock(t.due, overdue),
     h('div', { class: 'record-main' },
-      h('div', { class: 'record-title' }, t.name, asanaHighlight.has(t.gid) && h('span', { class: 'new-tag' }, 'Nuovo')),
-      meta.length > 0 && h('div', { class: 'record-meta' }, meta.join(' · '))),
+      h('div', { class: 'record-title' }, t.name, t.projects.map(projectTag),
+        asanaHighlight.has(t.gid) && h('span', { class: 'new-tag' }, 'Nuovo')),
+      meta.length > 0 && h('div', { class: 'record-meta' + (overdue ? ' overdue' : '') }, meta.join(' · '))),
     h('button', { class: 'ghost small' }, 'Apri'));
+}
+
+function taskGroupsByDue(tasks) {
+  const today = todayISO();
+  const soon = addDaysISO(today, ASANA_DUE_SOON_DAYS);
+  const sorted = [...tasks].sort((x, y) => (x.due || '9999').localeCompare(y.due || '9999'));
+  return [
+    ['Scaduti', sorted.filter((t) => t.due && t.due < today)],
+    ['Oggi', sorted.filter((t) => t.due === today)],
+    [`Prossimi ${ASANA_DUE_SOON_DAYS} giorni`, sorted.filter((t) => t.due > today && t.due <= soon)],
+    ['Più avanti', sorted.filter((t) => t.due > soon)],
+    ['Senza scadenza', sorted.filter((t) => !t.due)],
+  ];
+}
+
+// Progetti in ordine alfabetico, "Senza progetto" in fondo; dentro, prima le scadenze più vicine
+function taskGroupsByProject(tasks) {
+  const groups = new Map();
+  for (const t of [...tasks].sort((x, y) => (x.due || '9999').localeCompare(y.due || '9999'))) {
+    const key = taskProject(t);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(t);
+  }
+  return [...groups].sort(([a], [b]) => (a === NO_PROJECT) - (b === NO_PROJECT) || a.localeCompare(b, 'it'));
+}
+
+function renderAsanaTasks(view, a) {
+  if (!a.tasks.length) {
+    view.append(h('div', { class: 'empty' }, a.syncedAt ? 'Nessun task aperto assegnato a te.' : 'Caricamento dei task…'));
+    return;
+  }
+  const showWorkspace = new Set(a.tasks.map((t) => t.workspace)).size > 1;
+  const byProject = asanaView.groupBy === 'project';
+  const list = h('div');
+  // Il filtro ridisegna solo l'elenco, così il campo non perde il focus
+  const fill = () => {
+    const q = asanaView.query.trim().toLowerCase();
+    const shown = a.tasks.filter((t) => !q || taskMatches(t, q));
+    const groups = (byProject ? taskGroupsByProject : taskGroupsByDue)(shown).filter(([, l]) => l.length);
+    list.replaceChildren(...(groups.length ? groups.flatMap(([title, l]) => [
+      h('div', { class: 'section-title' }, `${title} (${l.length})`),
+      h('div', { class: 'card records' }, l.map((t) => asanaRow(t, { showWorkspace }))),
+    ]) : [h('div', { class: 'empty' }, 'Nessun task trovato.')]));
+  };
+  view.append(
+    h('div', { class: 'row', style: 'align-items:center; flex-wrap:wrap; gap:12px' },
+      h('div', { class: 'search gallery-search', style: 'flex:1; min-width:220px' }, icon('magnifying-glass', 'search-icon'),
+        h('input', { type: 'text', placeholder: 'Cerca task, progetto…', value: asanaView.query,
+          oninput: (e) => { asanaView.query = e.target.value; fill(); } })),
+      h('div', { class: 'segmented' }, [['due', 'Per scadenza'], ['project', 'Per progetto']].map(([id, label]) =>
+        h('button', { class: id === asanaView.groupBy ? 'active' : '', onclick: () => { asanaView.groupBy = id; render(); } }, label)))),
+    list);
+  fill();
+}
+
+function projectTile(p, openCount) {
+  const bg = ASANA_COLORS[p.color] || colorFor(p.name);
+  const sub = !openCount ? 'Nessun task tuo aperto' : openCount === 1 ? '1 task tuo aperto' : `${openCount} task tuoi aperti`;
+  return h('div', { class: 'link-tile', role: 'button', tabindex: '0', title: p.url,
+    onclick: () => window.api.openExternal(p.url),
+    onkeydown: (e) => { if (e.key === 'Enter') window.api.openExternal(p.url); } },
+    h('div', { class: 'badge', style: `background:${bg}` }, (p.name.trim()[0] || '?').toUpperCase()),
+    h('div', { class: 'meta' }, h('div', { class: 'name' }, p.name.trim()), h('div', { class: 'sub' }, sub)));
+}
+
+function renderAsanaProjects(view, a) {
+  const projects = a.projects || [];
+  if (!projects.length) {
+    view.append(h('div', { class: 'empty' }, a.syncedAt ? 'Nessun progetto: non fai parte di nessun progetto e non hai preferiti su Asana.' : 'Caricamento dei progetti…'));
+    return;
+  }
+  const counts = new Map();
+  for (const t of a.tasks) for (const name of t.projects) counts.set(name, (counts.get(name) || 0) + 1);
+  const countOf = (p) => counts.get(p.name) || 0;
+  const list = h('div');
+  const fill = () => {
+    const q = asanaView.query.trim().toLowerCase();
+    const shown = projects.filter((p) => !q || p.name.toLowerCase().includes(q));
+    const favorites = shown.filter((p) => p.favorite >= 0).sort((x, y) => x.favorite - y.favorite);
+    // Prima quelli con task miei aperti, poi in ordine alfabetico
+    const others = shown.filter((p) => p.favorite < 0)
+      .sort((x, y) => (countOf(y) > 0) - (countOf(x) > 0) || x.name.trim().localeCompare(y.name.trim(), 'it'));
+    const groups = [['Preferiti', favorites], ['I miei progetti', others]].filter(([, l]) => l.length);
+    list.replaceChildren(...(groups.length ? groups.flatMap(([title, l]) => [
+      h('div', { class: 'section-title' }, `${title} (${l.length})`),
+      h('div', { class: 'grid' }, l.map((p) => projectTile(p, countOf(p)))),
+    ]) : [h('div', { class: 'empty' }, 'Nessun progetto trovato.')]));
+  };
+  view.append(
+    h('div', { class: 'search gallery-search' }, icon('magnifying-glass', 'search-icon'),
+      h('input', { type: 'text', placeholder: 'Cerca progetto…', value: asanaView.query,
+        oninput: (e) => { asanaView.query = e.target.value; fill(); } })),
+    list,
+    h('div', { class: 'hint' }, 'Preferiti: i progetti con la stella su Asana, nello stesso ordine. Sotto, gli altri progetti di cui fai parte.'));
+  fill();
 }
 
 function renderAsana(view) {
@@ -1436,8 +1559,8 @@ function renderAsana(view) {
       h('div', { class: 'empty' }, 'Collega il tuo account Asana: qui vedi i task aperti assegnati a te e ricevi un avviso quando ne arriva uno nuovo.'),
       h('div', { class: 'row', style: 'margin-bottom:12px' },
         h('button', { class: 'primary', onclick: connectAsana }, 'Collega Asana'),
-        h('button', { class: 'ghost', onclick: () => window.api.openExternal('https://app.asana.com/0/my-apps') }, 'Crea il token su Asana')),
-      h('div', { class: 'hint' }, 'Su Asana: Console per sviluppatori → "Crea nuovo token" → copia il token e incollalo in "Collega Asana". '
+        h('button', { class: 'ghost', onclick: () => window.api.openExternal('https://app.asana.com/0/my-apps?open_in_browser=true') }, 'Crea il token su Asana')),
+      h('div', { class: 'hint' }, 'Nella pagina che si apre nel browser: Token di accesso personali → "+ Crea nuovo token" → copia il token e incollalo in "Collega Asana". '
         + 'Il token resta solo su questo computer e non finisce nei backup.'));
     return;
   }
@@ -1455,24 +1578,13 @@ function renderAsana(view) {
     h('button', { class: 'ghost', onclick: disconnectAsana }, 'Scollega'),
     status && h('span', { class: 'sheet-status' + (a.error ? ' error' : '') }, status)));
 
-  if (!a.tasks.length) {
-    view.append(h('div', { class: 'empty' }, a.syncedAt ? 'Nessun task aperto assegnato a te.' : 'Caricamento dei task…'));
-    return;
-  }
-  const today = todayISO();
-  const showWorkspace = new Set(a.tasks.map((t) => t.workspace)).size > 1;
-  const sorted = [...a.tasks].sort((x, y) => (x.due || '9999').localeCompare(y.due || '9999'));
-  const groups = [
-    ['Scaduti', sorted.filter((t) => t.due && t.due < today)],
-    ['Oggi', sorted.filter((t) => t.due === today)],
-    ['Prossimi', sorted.filter((t) => t.due > today)],
-    ['Senza scadenza', sorted.filter((t) => !t.due)],
-  ];
-  for (const [title, list] of groups) {
-    if (!list.length) continue;
-    view.append(h('div', { class: 'section-title' }, `${title} (${list.length})`),
-      h('div', { class: 'card records' }, list.map((t) => asanaRow(t, showWorkspace))));
-  }
+  const overdue = a.tasks.filter((t) => t.due && t.due < todayISO()).length;
+  const tabs = [['tasks', 'Task', a.tasks.length], ['projects', 'Progetti', (a.projects || []).length]];
+  view.append(h('div', { class: 'subtabs' }, tabs.map(([id, label, n]) =>
+    h('button', { class: 'subtab' + (id === asanaView.tab ? ' active' : ''), onclick: () => { asanaView.tab = id; asanaView.query = ''; render(); } },
+      label, h('span', { class: 'subtab-count' }, n),
+      id === 'tasks' && overdue > 0 && h('span', { class: 'subtab-count danger', title: 'Scaduti' }, `${overdue} scaduti`)))));
+  (asanaView.tab === 'projects' ? renderAsanaProjects : renderAsanaTasks)(view, a);
 }
 
 // ---------- Aspetto ----------
