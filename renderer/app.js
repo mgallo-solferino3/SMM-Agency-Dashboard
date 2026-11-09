@@ -1704,7 +1704,9 @@ function renderAsana(view) {
       h('div', { class: 'row', style: 'margin-bottom:12px' },
         h('button', { class: 'primary', onclick: connectAsana }, 'Collega Asana'),
         h('button', { class: 'ghost', onclick: () => window.api.openExternal('https://app.asana.com/0/my-apps?open_in_browser=true') }, 'Crea il token su Asana')),
-      h('div', { class: 'hint' }, 'Nella pagina che si apre nel browser: Token di accesso personali → "+ Crea nuovo token" → copia il token e incollalo in "Collega Asana". '
+      h('div', { class: 'hint' }, 'Crea il token su ',
+        h('a', { href: '#', onclick: (e) => { e.preventDefault(); window.api.openExternal('https://app.asana.com/0/my-apps?open_in_browser=true'); } }, 'https://app.asana.com/0/my-apps'),
+        ': Token di accesso personali → "+ Crea nuovo token" → copia il token e incollalo in "Collega Asana". '
         + 'Il token resta solo su questo computer e non finisce nei backup.'));
     return;
   }
