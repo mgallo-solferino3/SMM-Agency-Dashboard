@@ -797,7 +797,8 @@ function appuntoForm(a) {
   const form = h('div', { class: 'card appunto-form' },
     h('label', { class: 'field' }, h('span', null, 'Titolo'), titleInput),
     h('label', { class: 'field' }, h('span', null, 'Data'), dateInput),
-    h('label', { class: 'field' }, h('span', null, 'Testo'), rte),
+    // div e non label: un label inoltra i clic al primo pulsante della toolbar (Grassetto)
+    h('div', { class: 'field' }, h('span', null, 'Testo'), rte),
     h('div', { class: 'modal-actions', style: 'align-items:center' }, status, h('span', { style: 'flex:1' }), cancelBtn, saveBtn));
 
   flushAppunto = autosave;
