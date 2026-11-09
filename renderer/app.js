@@ -340,8 +340,24 @@ function defaultSites() {
   return DEFAULT_SITE_URLS.map((url) => ({ id: uid(), label: deriveLabel(url), url, thumb: null, capturedAt: null }));
 }
 
+// Strumenti già presenti in una nuova installazione
+const DEFAULT_TOOLS = [
+  { category: 'Progetti', label: 'Asana', url: 'https://app.asana.com' },
+  { category: 'Progetti', label: 'Gmail', url: 'https://mail.google.com' },
+  { category: 'Progetti', label: 'Google Drive', url: 'https://drive.google.com' },
+  { category: 'Progetti', label: 'Google Calendar', url: 'https://calendar.google.com' },
+  { category: 'Sviluppo e hosting', label: 'Siti SAL', url: 'https://docs.google.com/spreadsheets/d/13f5-f5vskaJMmoYdtWHMokvF3-5ecj6y6KOZUPhgvD0/edit?gid=383361820#gid=383361820' },
+  { category: 'Agency', label: 'Forms S3', url: 'https://forms.solferino3.agency/pannello', icon: 'https://forms.solferino3.agency/apple-touch-icon.png' },
+  { category: 'Agency', label: 'Popup S3', url: 'https://popup.solferino3.agency/pannello', icon: 'https://forms.solferino3.agency/apple-touch-icon.png' },
+  { category: 'Agency', label: 'Hub S3', url: 'https://hub.solferino3.agency/hub', icon: 'https://hub.solferino3.agency/wp-content/plugins/solferino3-centralino/assets/logo-s3-192.png?v=2.66.1' },
+  { category: 'Agency', label: 'Campagne S3', url: 'https://campagne.solferino3.agency/pannello', icon: 'data:image/png;base64,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' },
+];
+function defaultTools() {
+  return DEFAULT_TOOLS.map((t) => ({ id: uid(), icon: '', chromeProfile: '', ...t }));
+}
+
 function seedData() {
-  return normalizeState({ sites: defaultSites() });
+  return normalizeState({ sites: defaultSites(), tools: defaultTools() });
 }
 
 let state;
@@ -1866,6 +1882,22 @@ function renderSettings(view) {
         }));
     })),
     h('div', { class: 'hint' }, 'Gli strumenti spuntati compaiono nel menu sotto "Altri strumenti". Togliendo la spunta i dati restano salvati.'));
+
+  // Kit di link: aggiunge alla sezione Strumenti i link predefiniti che mancano (confronto per URL)
+  const urlKey = (u) => normalizeUrl(u).toLowerCase().replace(/\/+$/, '');
+  const have = new Set(state.tools.map((t) => urlKey(t.url)));
+  const missing = DEFAULT_TOOLS.filter((t) => !have.has(urlKey(t.url)));
+  view.append(
+    h('div', { class: 'section-title' }, 'Kit di link Solferino 3'),
+    h('div', { class: 'card' },
+      h('div', { class: 'hint', style: 'margin-top:0' }, DEFAULT_TOOLS.map((t) => t.label).join(' · ')),
+      h('div', { class: 'row', style: 'margin-top:10px; align-items:center' },
+        h('button', { class: 'primary', disabled: !missing.length, onclick: () => {
+          state.tools.push(...defaultTools().filter((t) => !have.has(urlKey(t.url))));
+          save(); render();
+          toast(`${missing.length === 1 ? 'Aggiunto 1 link' : `Aggiunti ${missing.length} link`} in Strumenti`);
+        } }, missing.length ? `Aggiungi a Strumenti (${missing.length})` : 'Già tutti in Strumenti'))),
+    h('div', { class: 'hint' }, 'Si aggiungono solo i link che non hai già; quelli che hai restano come sono.'));
 
   view.append(
     h('div', { class: 'section-title' }, 'Tema'),
