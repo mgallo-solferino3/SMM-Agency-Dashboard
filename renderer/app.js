@@ -583,15 +583,17 @@ function toolFields(t = {}) {
     { name: 'category', label: 'Categoria', value: t.category || '', placeholder: 'Es. Marketing' },
     { name: 'icon', type: 'icon', label: 'Icona (emoji, URL o immagine)', value: t.icon || '', placeholder: 'Es. 🎨 oppure https://…/icon.png' }];
 }
-function renderLinkSection(view, key, { addLabel, singular }) {
+// tab: id della scheda di Idee (gli elementi di quella sezione stanno tutti in state[key])
+function renderLinkSection(view, key, { addLabel, singular, tab }) {
   view.append(h('div', { class: 'row', style: 'margin-bottom:6px' },
     h('button', { class: 'primary', onclick: () => openForm({ title: `Nuovo ${singular}`, fields: toolFields(),
       onSubmit: (v) => {
         if (!v.label || !v.url) return false;
-        state[key].push({ id: uid(), label: v.label, url: normalizeUrl(v.url), category: v.category || 'Altro', icon: v.icon || '', chromeProfile: v.chromeProfile || '' });
+        state[key].push({ id: uid(), label: v.label, url: normalizeUrl(v.url), category: v.category || 'Altro', icon: v.icon || '', chromeProfile: v.chromeProfile || '',
+          ...(tab ? { tab } : {}) });
         save(); render();
       } }) }, `+ ${addLabel}`)));
-  const list = state[key];
+  const list = tab ? state[key].filter((t) => t.tab === tab) : state[key];
   const cats = [...new Set(list.map((t) => t.category))];
   if (!cats.length) view.append(h('div', { class: 'empty' }, `Nessun${singular.endsWith('a') ? 'a' : 'o'} ${singular}.`));
   for (const cat of cats) {
@@ -612,23 +614,73 @@ function renderTools(view) {
   renderLinkSection(view, 'tools', { addLabel: 'Nuovo strumento', singular: 'strumento' });
 }
 
-// --- IDEE (Librerie / Idee / Siti belli)
-const IDEE_TABS = [
-  { id: 'libraries', label: 'Librerie' },
-  { id: 'ideas', label: 'Idee' },
-  { id: 'sites', label: 'Siti belli' },
+// --- IDEE: schede a piacere, di due tipi: link (come Strumenti) o siti con anteprima
+// Le schede stanno in state.ideeTabs; link e siti in state.ideaLinks / state.sites con il campo tab.
+const IDEE_TAB_TYPES = [
+  { value: 'links', label: 'Link' },
+  { value: 'sites', label: 'Siti con anteprima' },
+];
+const DEFAULT_IDEE_TABS = [
+  { id: 'libraries', label: 'Librerie', type: 'links' },
+  { id: 'ideas', label: 'Idee', type: 'links' },
+  { id: 'sites', label: 'Siti belli', type: 'sites' },
 ];
 let ideeTab = 'libraries';
 const capturingIds = new Set();
 
+const currentIdeeTab = () => state.ideeTabs.find((t) => t.id === ideeTab) || state.ideeTabs[0];
+const ideeTabItems = (t) => (t.type === 'sites' ? state.sites : state.ideaLinks).filter((x) => x.tab === t.id);
+
+function addIdeeTab() {
+  openForm({ title: 'Nuova scheda', submitLabel: 'Aggiungi',
+    fields: [
+      { name: 'label', label: 'Nome', placeholder: 'Es. Ispirazioni' },
+      { name: 'type', label: 'Contenuto', type: 'select', value: 'links', options: IDEE_TAB_TYPES },
+    ],
+    onSubmit: (v) => {
+      if (!v.label) return false;
+      const t = { id: uid(), label: v.label, type: v.type === 'sites' ? 'sites' : 'links' };
+      state.ideeTabs.push(t);
+      ideeTab = t.id;
+      save(); render();
+    } });
+}
+
+function renameIdeeTab(t) {
+  openForm({ title: 'Rinomina scheda', submitLabel: 'Salva',
+    fields: [{ name: 'label', label: 'Nome', value: t.label }],
+    onSubmit: (v) => {
+      if (!v.label) return false;
+      t.label = v.label; save(); render();
+    } });
+}
+
+function deleteIdeeTab(t) {
+  if (state.ideeTabs.length === 1) return toast('Serve almeno una scheda');
+  const n = ideeTabItems(t).length;
+  confirmBox(n ? `Eliminare la scheda "${t.label}" e ${n === 1 ? 'l\'elemento che contiene' : `i ${n} elementi che contiene`}?` : `Eliminare la scheda "${t.label}"?`, () => {
+    state.ideeTabs = state.ideeTabs.filter((x) => x.id !== t.id);
+    if (t.type === 'sites') state.sites = state.sites.filter((x) => x.tab !== t.id);
+    else state.ideaLinks = state.ideaLinks.filter((x) => x.tab !== t.id);
+    if (ideeTab === t.id) ideeTab = state.ideeTabs[0].id;
+    save(); render();
+  });
+}
+
 function renderIdee(view) {
-  view.append(h('div', { class: 'subtabs' }, IDEE_TABS.map((t) =>
-    h('button', { class: 'subtab' + (t.id === ideeTab ? ' active' : ''), onclick: () => { ideeTab = t.id; render(); } }, t.label))));
+  const cur = currentIdeeTab();
+  ideeTab = cur.id;
+  view.append(h('div', { class: 'subtabs' },
+    state.ideeTabs.map((t) => h('span', { class: 'subtab-wrap' },
+      h('button', { class: 'subtab' + (t.id === cur.id ? ' active' : ''), title: 'Doppio clic per rinominare',
+        onclick: () => { ideeTab = t.id; render(); }, ondblclick: () => renameIdeeTab(t) }, t.label),
+      editing && h('button', { class: 'icon', title: 'Rinomina', onclick: () => renameIdeeTab(t) }, icon('pen')),
+      editing && state.ideeTabs.length > 1 && h('button', { class: 'icon', title: 'Elimina scheda', onclick: () => deleteIdeeTab(t) }, icon('xmark')))),
+    h('button', { class: 'subtab subtab-add', title: 'Nuova scheda', onclick: addIdeeTab }, '+')));
   const body = h('div', { class: 'subtab-body' });
   view.append(body);
-  if (ideeTab === 'libraries') renderLinkSection(body, 'libraries', { addLabel: 'Nuova libreria', singular: 'libreria' });
-  else if (ideeTab === 'ideas') renderLinkSection(body, 'ideaLinks', { addLabel: 'Nuova idea', singular: 'idea' });
-  else renderSites(body);
+  if (cur.type === 'sites') renderSites(body, cur.id);
+  else renderLinkSection(body, 'ideaLinks', { addLabel: 'Nuovo link', singular: 'link', tab: cur.id });
 }
 
 function siteFields(s = {}) {
@@ -637,12 +689,12 @@ function siteFields(s = {}) {
     { name: 'url', label: 'URL', value: s.url || '', placeholder: 'https://…' },
   ];
 }
-function addSite() {
+function addSite(tab) {
   openForm({ title: 'Nuovo sito', fields: siteFields(),
     onSubmit: (v) => {
       if (!v.url) return false;
       const url = normalizeUrl(v.url);
-      const item = { id: uid(), label: v.label || deriveLabel(url), url, thumb: null, capturedAt: null };
+      const item = { id: uid(), label: v.label || deriveLabel(url), url, thumb: null, capturedAt: null, tab };
       state.sites.push(item); save(); render();
       captureSite(item);
     } });
@@ -659,8 +711,9 @@ function deleteSite(s) {
     state.sites = state.sites.filter((x) => x.id !== s.id); save(); render();
   });
 }
+const sitesVisible = () => page === 'idee' && currentIdeeTab().type === 'sites';
 function renderIfSitesVisible() {
-  if (page === 'idee' && ideeTab === 'sites') render();
+  if (sitesVisible()) render();
 }
 async function captureSite(s) {
   capturingIds.add(s.id);
@@ -672,11 +725,11 @@ async function captureSite(s) {
   renderIfSitesVisible();
 }
 let captureQueueRunning = false;
-async function captureAllMissing() {
+async function captureAllMissing(tab) {
   if (captureQueueRunning) return;
   captureQueueRunning = true;
-  for (const s of state.sites.filter((s) => !s.thumb)) {
-    if (page !== 'idee' || ideeTab !== 'sites') break;
+  for (const s of state.sites.filter((s) => s.tab === tab && !s.thumb)) {
+    if (!sitesVisible() || ideeTab !== tab) break;
     await captureSite(s);
   }
   captureQueueRunning = false;
@@ -697,13 +750,14 @@ function siteCard(s) {
       editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => editSite(s) }, icon('pen')),
       editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => deleteSite(s) }, icon('xmark'))));
 }
-function renderSites(view) {
-  const missing = state.sites.filter((s) => !s.thumb).length;
+function renderSites(view, tab) {
+  const sites = state.sites.filter((s) => s.tab === tab);
+  const missing = sites.filter((s) => !s.thumb).length;
   view.append(h('div', { class: 'row', style: 'margin-bottom:6px' },
-    h('button', { class: 'primary', onclick: addSite }, '+ Nuovo sito'),
-    missing > 0 && h('button', { class: 'ghost small', onclick: captureAllMissing }, `Cattura mancanti (${missing})`)));
-  if (!state.sites.length) view.append(h('div', { class: 'empty' }, 'Nessun sito salvato.'));
-  view.append(h('div', { class: 'site-grid' }, state.sites.map((s) => siteCard(s))));
+    h('button', { class: 'primary', onclick: () => addSite(tab) }, '+ Nuovo sito'),
+    missing > 0 && h('button', { class: 'ghost small', onclick: () => captureAllMissing(tab) }, `Cattura mancanti (${missing})`)));
+  if (!sites.length) view.append(h('div', { class: 'empty' }, 'Nessun sito salvato.'));
+  view.append(h('div', { class: 'site-grid' }, sites.map((s) => siteCard(s))));
 }
 
 // --- TODO
@@ -2173,9 +2227,7 @@ function normalizeState(d) {
   return {
     version: 1,
     tools: Array.isArray(d.tools) ? d.tools : [],
-    libraries: Array.isArray(d.libraries) ? d.libraries : [],
-    ideaLinks: Array.isArray(d.ideaLinks) ? d.ideaLinks : [],
-    sites: Array.isArray(d.sites) ? d.sites : defaultSites(),
+    ...normalizeIdee(d),
     todos: Array.isArray(d.todos) ? d.todos : [],
     notes: typeof d.notes === 'string' ? d.notes : '',
     appunti: Array.isArray(d.appunti) ? d.appunti : [],
@@ -2185,6 +2237,30 @@ function normalizeState(d) {
     pixiesetSheet: { url: '', syncedAt: 0, error: '', ...(d.pixiesetSheet && typeof d.pixiesetSheet === 'object' ? d.pixiesetSheet : {}) },
     settings: normalizeSettings(d.settings),
   };
+}
+
+// Fino alla 1.11 Idee aveva tre schede fisse (libraries, ideaLinks, sites): diventano le prime tre schede.
+// Un elemento con una scheda che non esiste più (es. dati salvati da una versione precedente) la fa ricreare.
+function normalizeIdee(d) {
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  const tabs = arr(d.ideeTabs).filter((t) => t && typeof t.id === 'string' && typeof t.label === 'string')
+    .map((t) => ({ id: t.id, label: t.label, type: t.type === 'sites' ? 'sites' : 'links' }));
+  const hadTabs = tabs.length > 0;
+  if (!hadTabs) tabs.push(...DEFAULT_IDEE_TABS.map((t) => ({ ...t })));
+  const ideaLinks = [
+    ...arr(d.libraries).map((x) => ({ ...x, tab: x.tab || 'libraries' })),
+    ...arr(d.ideaLinks).map((x) => ({ ...x, tab: x.tab || 'ideas' })),
+  ];
+  const sites = (Array.isArray(d.sites) ? d.sites : defaultSites()).map((x) => ({ ...x, tab: x.tab || 'sites' }));
+  for (const [items, type] of [[ideaLinks, 'links'], [sites, 'sites']]) {
+    for (const x of items) {
+      if (tabs.some((t) => t.id === x.tab)) continue;
+      const def = DEFAULT_IDEE_TABS.find((t) => t.id === x.tab);
+      tabs.push(def ? { ...def } : { id: x.tab, label: type === 'sites' ? 'Siti' : 'Link', type });
+    }
+  }
+  // Se l'utente ha eliminato una scheda predefinita resta eliminata (la ricrea solo un elemento orfano)
+  return { ideeTabs: tabs, libraries: [], ideaLinks, sites };
 }
 
 function normalizeSettings(s) {
