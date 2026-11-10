@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { pathToFileURL, fileURLToPath } = require('url');
 const { execFile, spawn } = require('child_process');
+const os = require('os');
 
 const IS_MAC = process.platform === 'darwin';
 const IS_WIN = process.platform === 'win32';
@@ -170,6 +171,7 @@ function createWindow() {
     hideWidget();
     checkForUpdateIfStale();
     syncAsanaIfStale();
+    syncCloudIfStale();
   });
   win.on('closed', () => {
     // Distrugge il widget: altrimenti conterebbe come finestra aperta e 'activate' non ricreerebbe la principale
@@ -352,12 +354,17 @@ ipcMain.handle('data:load', () => {
   }
 });
 
-ipcMain.handle('data:save', (_e, data) => {
+function writeData(data) {
   const file = DATA_FILE();
   const tmp = file + '.tmp';
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
   fs.renameSync(tmp, file); // scrittura atomica
+}
+
+ipcMain.handle('data:save', (_e, data) => {
+  writeData(data);
+  markCloudDirty();
   return true;
 });
 
@@ -1035,6 +1042,219 @@ ipcMain.handle('asana:connect', async (_e, token) => {
   return { ok: true };
 });
 
+// ---- Account Solferino 3 (Cloudflare): ruoli utente/admin, sincronizzazione dei dati ----
+// Ogni computer si collega con un codice monouso generato da un admin (o dall'utente da un altro suo computer).
+// Token e stato della sincronizzazione stanno in cloud.json, fuori dai dati e quindi dai backup esportati.
+const CLOUD_API = (process.env.S3_CLOUD_URL || 'https://solferino3-dashboard-api.m-gallo.workers.dev').replace(/\/+$/, '');
+const CLOUD_FILE = () => path.join(app.getPath('userData'), 'cloud.json');
+const CLOUD_POLL_MS = 5 * 60 * 1000;
+const CLOUD_FOCUS_MIN_GAP_MS = 60 * 1000;
+const CLOUD_PUSH_DELAY_MS = 3000;
+const CLOUD_EMPTY = { token: '', user: null, rev: 0, dirty: false, syncedAt: 0, error: '', sharedTools: null };
+
+let cloud = { ...CLOUD_EMPTY };
+let cloudSyncing = false;
+let cloudSaveSeq = 0; // cresce a ogni salvataggio: dice se ci sono modifiche arrivate durante un invio
+let cloudPushTimer;
+let lastCloudAttempt = 0;
+
+function loadCloud() {
+  try {
+    cloud = { ...CLOUD_EMPTY, ...JSON.parse(fs.readFileSync(CLOUD_FILE(), 'utf8')) };
+  } catch (_) {}
+}
+
+function saveCloud() {
+  const file = CLOUD_FILE();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file + '.tmp', JSON.stringify(cloud), 'utf8');
+  fs.renameSync(file + '.tmp', file);
+}
+
+// Stato per l'interfaccia, senza il token
+const cloudPublic = () => ({ connected: !!cloud.token, user: cloud.user, syncedAt: cloud.syncedAt, error: cloud.error,
+  dirty: cloud.dirty, syncing: cloudSyncing, sharedTools: cloud.sharedTools });
+
+function sendCloud() {
+  if (win && !win.isDestroyed()) win.webContents.send('cloud:update', cloudPublic());
+}
+
+class CloudError extends Error {
+  constructor(status, body) {
+    super((body && body.message) || `Server non raggiungibile (${status})`);
+    this.status = status;
+    this.body = body;
+  }
+}
+
+async function cloudFetch(method, pathname, body, token = cloud.token) {
+  const res = await net.fetch(CLOUD_API + pathname, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    cache: 'no-store',
+  });
+  const data = await res.json().catch(() => null);
+  if (res.status === 401 && token) {
+    // Sessione scaduta o utente rimosso: i dati locali restano, serve un nuovo accesso
+    cloud = { ...CLOUD_EMPTY, error: (data && data.message) || 'Computer scollegato: inserisci un nuovo codice' };
+    saveCloud();
+    sendCloud();
+  }
+  if (!res.ok) throw new CloudError(res.status, data);
+  return data;
+}
+
+// Le anteprime dei siti sono file su questo computer: non si sincronizzano
+function stripForCloud(data) {
+  return { ...data, sites: (data.sites || []).map((s) => ({ ...s, thumb: null })) };
+}
+
+function readLocalData() {
+  try {
+    return JSON.parse(fs.readFileSync(DATA_FILE(), 'utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+// Dati arrivati da un altro dispositivo: si tengono le anteprime locali dei siti con lo stesso id.
+// Se qui c'erano modifiche non ancora inviate, prima si salva una copia nella cartella dei dati.
+function applyRemoteData(remote, rev, { conflict = false } = {}) {
+  const local = readLocalData();
+  if (conflict && local) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    fs.writeFileSync(path.join(app.getPath('userData'), `copia-prima-della-sincronizzazione-${stamp}.json`), JSON.stringify(local, null, 2), 'utf8');
+  }
+  const thumbs = new Map(((local && local.sites) || []).map((s) => [s.id, s]));
+  const merged = { ...remote, sites: (remote.sites || []).map((s) => {
+    const l = thumbs.get(s.id);
+    return l && l.thumb ? { ...s, thumb: l.thumb, capturedAt: l.capturedAt } : s;
+  }) };
+  writeData(merged);
+  cloud.rev = rev;
+  cloud.dirty = false;
+  if (win && !win.isDestroyed()) win.webContents.send('data:remote', { data: merged, conflict });
+}
+
+async function pushCloudData() {
+  const local = readLocalData();
+  if (!local) return;
+  const seq = cloudSaveSeq;
+  try {
+    const res = await cloudFetch('PUT', '/api/data', { baseRev: cloud.rev, data: stripForCloud(local) });
+    cloud.rev = res.rev;
+    cloud.dirty = seq !== cloudSaveSeq;
+  } catch (err) {
+    // Un altro dispositivo ha salvato prima: vince la versione online, quella locale resta in copia
+    if (err.status !== 409 || !err.body || !err.body.data) throw err;
+    applyRemoteData(err.body.data, err.body.rev, { conflict: true });
+  }
+}
+
+async function syncCloud() {
+  if (!cloud.token || cloudSyncing) return;
+  cloudSyncing = true;
+  lastCloudAttempt = Date.now();
+  sendCloud();
+  try {
+    cloud.user = await cloudFetch('GET', '/api/me');
+    const shared = await cloudFetch('GET', '/api/shared/tools');
+    cloud.sharedTools = Array.isArray(shared.data) ? shared.data : null;
+    const remote = await cloudFetch('GET', '/api/data');
+    if (remote.rev && remote.rev !== cloud.rev) applyRemoteData(remote.data, remote.rev, { conflict: cloud.dirty || !cloud.rev });
+    else if (!remote.rev) {
+      cloud.rev = 0; // nulla online (primo accesso): si caricano i dati di questo computer
+      await pushCloudData();
+    } else if (cloud.dirty) await pushCloudData();
+    cloud.syncedAt = Date.now();
+    cloud.error = '';
+  } catch (err) {
+    if (cloud.token) cloud.error = String((err && err.message) || err);
+  } finally {
+    cloudSyncing = false;
+    if (cloud.token) saveCloud();
+    sendCloud();
+  }
+}
+
+function syncCloudIfStale() {
+  if (Date.now() - lastCloudAttempt > CLOUD_FOCUS_MIN_GAP_MS) syncCloud();
+}
+
+function markCloudDirty() {
+  if (!cloud.token) return;
+  cloudSaveSeq++;
+  if (!cloud.dirty) {
+    cloud.dirty = true;
+    saveCloud();
+  }
+  clearTimeout(cloudPushTimer);
+  cloudPushTimer = setTimeout(async function push() {
+    if (cloudSyncing) return (cloudPushTimer = setTimeout(push, CLOUD_PUSH_DELAY_MS));
+    cloudSyncing = true;
+    try {
+      await pushCloudData();
+      cloud.syncedAt = Date.now();
+      cloud.error = '';
+    } catch (err) {
+      if (cloud.token) cloud.error = String((err && err.message) || err);
+    } finally {
+      cloudSyncing = false;
+      if (cloud.token) saveCloud();
+      sendCloud();
+    }
+    if (cloud.dirty && !cloud.error) cloudPushTimer = setTimeout(push, CLOUD_PUSH_DELAY_MS);
+  }, CLOUD_PUSH_DELAY_MS);
+}
+
+// Collega questo computer con un codice: al primo sync, se online ci sono già dati, vincono quelli
+// (i dati locali restano in copia); se no si caricano quelli di questo computer.
+async function cloudRedeem(code) {
+  try {
+    const res = await cloudFetch('POST', '/auth/redeem', { code: String(code || ''), device: os.hostname() }, '');
+    cloud = { ...CLOUD_EMPTY, token: res.token, user: res.user };
+    saveCloud();
+    await syncCloud();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+}
+
+const cloudCall = (fn) => async (_e, ...args) => {
+  try {
+    return { ok: true, result: await fn(...args) };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+};
+
+ipcMain.handle('cloud:get', () => cloudPublic());
+ipcMain.handle('cloud:sync', () => syncCloud());
+ipcMain.handle('cloud:redeem', (_e, code) => cloudRedeem(code));
+ipcMain.handle('cloud:my-code', cloudCall(() => cloudFetch('POST', '/api/me/code')));
+ipcMain.handle('cloud:logout', async () => {
+  if (cloud.token) cloudFetch('POST', '/auth/logout').catch(() => {});
+  clearTimeout(cloudPushTimer);
+  cloud = { ...CLOUD_EMPTY };
+  saveCloud();
+  sendCloud();
+  return true;
+});
+// Amministrazione (il Worker verifica comunque il ruolo)
+ipcMain.handle('cloud:users', cloudCall(() => cloudFetch('GET', '/api/users')));
+ipcMain.handle('cloud:invite', cloudCall((email, name, role) => cloudFetch('POST', '/api/users', { email: String(email), name: String(name || ''), role })));
+ipcMain.handle('cloud:user-code', cloudCall((email) => cloudFetch('POST', `/api/users/${encodeURIComponent(email)}/code`)));
+ipcMain.handle('cloud:set-role', cloudCall((email, role) => cloudFetch('PATCH', `/api/users/${encodeURIComponent(email)}`, { role })));
+ipcMain.handle('cloud:remove-user', cloudCall((email) => cloudFetch('DELETE', `/api/users/${encodeURIComponent(email)}`)));
+ipcMain.handle('cloud:publish-tools', cloudCall(async (tools) => {
+  await cloudFetch('PUT', '/api/shared/tools', { data: tools });
+  cloud.sharedTools = tools;
+  saveCloud();
+  sendCloud();
+}));
+
 app.whenReady().then(() => {
   if (!isPrimaryInstance || renameOldMacBundle()) return;
   migrateOldUserData();
@@ -1051,6 +1271,10 @@ app.whenReady().then(() => {
   // Il controllo gira nel processo principale: funziona anche con la finestra chiusa (Mac) o ridotta a icona
   setInterval(checkForUpdate, UPDATE_POLL_MS);
   powerMonitor.on('resume', checkForUpdateIfStale);
+  loadCloud();
+  syncCloud();
+  setInterval(syncCloud, CLOUD_POLL_MS);
+  powerMonitor.on('resume', syncCloudIfStale);
   loadAsana();
   syncAsana();
   setInterval(syncAsana, ASANA_POLL_MS);

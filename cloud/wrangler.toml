@@ -1,0 +1,12 @@
+name = "solferino3-dashboard-api"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+# Gli admin possono invitare solo indirizzi di questo dominio
+ALLOWED_DOMAIN = "solferino3.it"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "solferino3-dashboard"
+database_id = "43c5f271-0454-4593-ae93-f7e692247ce3"

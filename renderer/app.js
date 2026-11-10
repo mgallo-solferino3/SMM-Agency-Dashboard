@@ -352,8 +352,10 @@ const DEFAULT_TOOLS = [
   { category: 'Agency', label: 'Hub S3', url: 'https://hub.solferino3.agency/hub', icon: 'https://hub.solferino3.agency/wp-content/plugins/solferino3-centralino/assets/logo-s3-192.png?v=2.66.1' },
   { category: 'Agency', label: 'Campagne S3', url: 'https://campagne.solferino3.agency/pannello', icon: 'data:image/png;base64,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' },
 ];
+// Il kit pubblicato dagli admin (account Solferino 3) sostituisce quello incluso nell'app
+const kitTools = () => (cloudState.sharedTools && cloudState.sharedTools.length ? cloudState.sharedTools : DEFAULT_TOOLS);
 function defaultTools() {
-  return DEFAULT_TOOLS.map((t) => ({ id: uid(), icon: '', chromeProfile: '', ...t }));
+  return kitTools().map((t) => ({ id: uid(), icon: '', chromeProfile: '', ...t }));
 }
 
 function seedData() {
@@ -1749,6 +1751,187 @@ function renderAsana(view) {
   (asanaView.tab === 'projects' ? renderAsanaProjects : renderAsanaTasks)(view, a);
 }
 
+// ---------- Account Solferino 3 (codice per dispositivo, sincronizzazione, amministrazione) ----------
+let cloudState = { connected: false, user: null, sharedTools: null };
+let cloudRedeeming = false;
+let adminUsers = null; // null = da caricare
+let adminError = '';
+let kitDraft = null; // URL scelti per il kit mentre l'admin lo modifica
+
+const isAdmin = () => cloudState.connected && cloudState.user && cloudState.user.role === 'admin';
+const kitUrlKey = (u) => normalizeUrl(u).toLowerCase().replace(/\/+$/, '');
+
+function onCloudUpdate(c) {
+  const roleChanged = (c.user && c.user.role) !== (cloudState.user && cloudState.user.role);
+  cloudState = c;
+  if (!c.connected) { adminUsers = null; kitDraft = null; }
+  if (page === 'settings' || roleChanged) render();
+}
+
+// Dati arrivati da un altro dispositivo (o versione online più recente)
+function onDataRemote({ data, conflict }) {
+  clearTimeout(save._t);
+  state = normalizeState(data);
+  applyAppearance();
+  window.api.setIcon(state.settings.iconData || null);
+  render();
+  toast(conflict ? 'Dati aggiornati dall\'account: la versione precedente è salvata in copia' : 'Dati aggiornati dall\'account');
+}
+
+async function cloudRedeem(code) {
+  if (!code.trim()) return toast('Inserisci il codice');
+  cloudRedeeming = true;
+  render();
+  const res = await window.api.cloudRedeem(code);
+  cloudRedeeming = false;
+  render();
+  toast(res.ok ? 'Computer collegato' : res.error);
+}
+
+function cloudLogout() {
+  confirmBox('Scollegare questo computer? I dati restano qui ma non si sincronizzano più; per ricollegarlo serve un nuovo codice.', async () => {
+    await window.api.cloudLogout();
+    toast('Computer scollegato');
+  }, 'Scollega');
+}
+
+// Mostra un codice appena generato, da copiare e mandare alla persona
+function showCode({ code, email, expiresAt }, intro) {
+  const dlg = $('#modal');
+  dlg.replaceChildren(h('form', { method: 'dialog' },
+    h('h2', null, 'Codice per collegare un computer'),
+    h('p', null, intro || `Per ${email}.`),
+    h('div', { style: 'font:600 26px ui-monospace,Menlo,monospace; letter-spacing:.08em; text-align:center; padding:14px; border:1px solid var(--line); border-radius:var(--radius); margin:10px 0; user-select:all' }, code),
+    h('div', { class: 'hint' }, `Va inserito in Impostazioni → Account Solferino 3 entro il ${new Date(expiresAt).toLocaleDateString('it-IT')}. `
+      + 'Vale una sola volta e per un solo computer.'),
+    h('div', { class: 'modal-actions' },
+      h('button', { type: 'button', class: 'ghost', onclick: () => copy(`Codice per Solferino 3 Dashboard: ${code}`, 'Codice copiato') }, icon('copy'), ' Copia'),
+      h('button', { type: 'submit', class: 'primary' }, 'Fatto'))));
+  dlg.showModal();
+}
+
+async function codeAction(promise, intro) {
+  const res = await promise;
+  if (!res.ok) return toast(res.error);
+  showCode(res.result, intro);
+}
+
+async function adminAction(promise, okMsg) {
+  const res = await promise;
+  if (!res.ok) { toast(res.error); return false; }
+  adminUsers = null;
+  if (okMsg) toast(okMsg);
+  render();
+  return true;
+}
+
+async function loadAdminUsers() {
+  const res = await window.api.cloudUsers();
+  adminUsers = res.ok ? res.result : [];
+  adminError = res.ok ? '' : res.error;
+  if (page === 'settings') render();
+}
+
+function renderAccount(view) {
+  const c = cloudState;
+  view.append(h('div', { class: 'section-title' }, 'Account Solferino 3'));
+  if (!c.connected) {
+    const input = h('input', { type: 'text', placeholder: 'XXXX-XXXX-XXXX', autocomplete: 'off', spellcheck: 'false',
+      style: 'font-family:ui-monospace,Menlo,monospace; letter-spacing:.06em',
+      onkeydown: (e) => { if (e.key === 'Enter') cloudRedeem(input.value); } });
+    view.append(
+      h('div', { class: 'card' },
+        h('div', { class: 'row', style: 'align-items:center' },
+          input,
+          h('button', { class: 'primary', disabled: cloudRedeeming, onclick: () => cloudRedeem(input.value) }, icon('key'), cloudRedeeming ? ' Collegamento…' : ' Collega')),
+        c.error && h('div', { class: 'sheet-status error', style: 'margin-top:8px' }, c.error)),
+      h('div', { class: 'hint' }, 'Inserisci il codice che ti ha dato un amministratore: i tuoi dati si sincronizzano tra i computer e ricevi il kit di link aggiornato. '
+        + 'Per un altro computer genera un nuovo codice da qui, una volta collegato. Token Asana e anteprime dei siti restano su questo computer.'));
+    return;
+  }
+  const u = c.user || {};
+  const time = c.syncedAt && new Date(c.syncedAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  const status = c.syncing ? 'Sincronizzazione…' : c.error || (c.dirty ? 'Modifiche da inviare' : time ? `Sincronizzato alle ${time}` : '');
+  view.append(h('div', { class: 'card' },
+    h('div', { style: 'font-weight:600' }, u.name || u.email, h('span', { class: 'tool-group-tag', style: 'margin-left:8px' }, u.role === 'admin' ? 'Amministratore' : 'Utente')),
+    u.name && h('div', { class: 'hint', style: 'margin-top:2px' }, u.email),
+    h('div', { class: 'row', style: 'margin-top:10px; align-items:center; flex-wrap:wrap' },
+      h('button', { class: 'ghost', disabled: c.syncing, onclick: () => window.api.cloudSync() }, icon('rotate'), ' Sincronizza'),
+      h('button', { class: 'ghost', onclick: () => codeAction(window.api.cloudMyCode(), 'Inseriscilo sull\'altro computer per ritrovare lì i tuoi dati.') }, 'Collega un altro computer'),
+      h('button', { class: 'ghost', onclick: cloudLogout }, 'Scollega'),
+      status && h('span', { class: 'sheet-status' + (c.error ? ' error' : '') }, status))));
+  if (u.role === 'admin') renderAdmin(view);
+}
+
+function renderAdmin(view) {
+  if (adminUsers === null) loadAdminUsers();
+  const me = cloudState.user.email;
+  const roleLabel = (r) => (r === 'admin' ? 'Amministratore' : 'Utente');
+  const invite = () => openForm({ title: 'Invita un collega', submitLabel: 'Invita',
+    fields: [
+      { name: 'email', label: 'Email @solferino3.it', placeholder: 'nome@solferino3.it' },
+      { name: 'name', label: 'Nome', placeholder: 'Nome e cognome' },
+      { name: 'role', label: 'Ruolo', type: 'select', value: 'user', options: [{ value: 'user', label: 'Utente' }, { value: 'admin', label: 'Amministratore' }] },
+    ],
+    onSubmit: (v) => {
+      if (!v.email) return false;
+      window.api.cloudInvite(v.email, v.name, v.role).then((res) => {
+        if (!res.ok) return toast(res.error);
+        adminUsers = null;
+        render();
+        showCode(res.result, `${v.name || v.email} è stato invitato. Mandagli questo codice per collegare il suo computer.`);
+      });
+    } });
+
+  view.append(
+    h('div', { class: 'section-title' }, 'Amministrazione · Utenti'),
+    h('div', { class: 'card' },
+      adminUsers === null ? h('div', { class: 'hint', style: 'margin:0' }, 'Caricamento…')
+        : adminError ? h('div', { class: 'sheet-status error' }, adminError)
+          : adminUsers.map((x) => h('div', { class: 'row', style: 'align-items:center; padding:6px 0; border-bottom:1px solid var(--line)' },
+            h('div', { style: 'flex:1; min-width:0' },
+              h('div', null, x.name || x.email),
+              h('div', { class: 'sheet-status' }, x.name ? `${x.email} · ` : '',
+                x.devices ? `${x.devices === 1 ? '1 computer' : `${x.devices} computer`} · ultimo accesso ${new Date(x.lastSeen).toLocaleDateString('it-IT')}` : 'nessun computer collegato')),
+            h('button', { class: 'ghost small', onclick: () => codeAction(window.api.cloudUserCode(x.email)) }, 'Codice'),
+            x.email === me ? h('span', { class: 'tool-group-tag', style: 'margin-left:0' }, `${roleLabel(x.role)} (tu)`) : [
+              h('select', { style: 'width:auto; flex:none', onchange: (e) => adminAction(window.api.cloudSetRole(x.email, e.target.value), 'Ruolo aggiornato') },
+                ['user', 'admin'].map((r) => h('option', { value: r, selected: r === x.role }, roleLabel(r)))),
+              h('button', { class: 'icon', title: 'Rimuovi', onclick: () => confirmBox(`Rimuovere ${x.email}? Non potrà più accedere; se lo inviti di nuovo ritrova i suoi dati.`,
+                () => adminAction(window.api.cloudRemoveUser(x.email), 'Utente rimosso'), 'Rimuovi') }, icon('xmark')),
+            ])),
+      h('div', { class: 'row', style: 'margin-top:10px' },
+        h('button', { class: 'primary', onclick: invite }, 'Invita un collega'))),
+    h('div', { class: 'hint' }, 'Ogni computer si collega con un codice monouso: "Codice" ne genera uno per quella persona. '
+      + 'Rimuovendo qualcuno si scollegano tutti i suoi computer. Gli amministratori non vedono i dati personali degli altri.'));
+
+  // Kit di link condiviso: l'admin sceglie quali dei propri Strumenti pubblicare per tutti
+  const kit = new Set(kitTools().map((t) => kitUrlKey(t.url)));
+  if (!kitDraft) kitDraft = new Set(state.tools.filter((t) => kit.has(kitUrlKey(t.url))).map((t) => kitUrlKey(t.url)));
+  const publish = () => {
+    const tools = state.tools.filter((t) => kitDraft.has(kitUrlKey(t.url)) && /^https?:\/\//i.test(normalizeUrl(t.url)))
+      .map((t) => ({ category: t.category || '', label: t.label, url: normalizeUrl(t.url),
+        ...(t.icon && !t.icon.startsWith('data:') ? { icon: t.icon } : {}) }));
+    if (!tools.length) return toast('Scegli almeno un link');
+    confirmBox(`Pubblicare il kit con ${tools.length} link? Lo ricevono tutti gli utenti dell'account.`,
+      () => adminAction(window.api.cloudPublishTools(tools), 'Kit di link pubblicato'), 'Pubblica');
+  };
+  const missingFromMine = kitTools().filter((t) => !state.tools.some((x) => kitUrlKey(x.url) === kitUrlKey(t.url)));
+  view.append(
+    h('div', { class: 'section-title' }, 'Amministrazione · Kit di link'),
+    h('div', { class: 'card' },
+      state.tools.length ? state.tools.map((t) => h('label', { class: 'tool-toggle' },
+        h('input', { type: 'checkbox', checked: kitDraft.has(kitUrlKey(t.url)),
+          onchange: (e) => { const k = kitUrlKey(t.url); e.target.checked ? kitDraft.add(k) : kitDraft.delete(k); } }),
+        h('span', null, t.label),
+        t.category && h('span', { class: 'tool-note' }, t.category)))
+        : h('div', { class: 'hint', style: 'margin:0' }, 'Aggiungi prima dei link in Strumenti.'),
+      h('div', { class: 'row', style: 'margin-top:10px' },
+        h('button', { class: 'primary', onclick: publish }, 'Pubblica kit'))),
+    h('div', { class: 'hint' }, 'Il kit si compone dai tuoi Strumenti: spunta i link da condividere. '
+      + (missingFromMine.length ? `Nel kit attuale ci sono link che non hai in Strumenti (${missingFromMine.map((t) => t.label).join(', ')}): ripubblicando verrebbero tolti.` : '')));
+}
+
 // ---------- Aspetto ----------
 const PALETTES = [
   // Predefinita: i colori di solferino3.it (carta #F2EEEC, notte #02182B, accento #6295A5)
@@ -1853,6 +2036,7 @@ function renderSettings(view) {
   const set = (patch) => { Object.assign(s, patch); save(); applyAppearance(); render(); };
   const pal = PALETTES.find((p) => p.id === s.palette) || PALETTES[0];
 
+  renderAccount(view);
   view.append(
     h('div', { class: 'section-title' }, 'Profilo'),
     h('div', { class: 'profile-grid' }, PROFILES.map((p) =>
@@ -1886,11 +2070,11 @@ function renderSettings(view) {
   // Kit di link: aggiunge alla sezione Strumenti i link predefiniti che mancano (confronto per URL)
   const urlKey = (u) => normalizeUrl(u).toLowerCase().replace(/\/+$/, '');
   const have = new Set(state.tools.map((t) => urlKey(t.url)));
-  const missing = DEFAULT_TOOLS.filter((t) => !have.has(urlKey(t.url)));
+  const missing = kitTools().filter((t) => !have.has(urlKey(t.url)));
   view.append(
     h('div', { class: 'section-title' }, 'Kit di link Solferino 3'),
     h('div', { class: 'card' },
-      h('div', { class: 'hint', style: 'margin-top:0' }, DEFAULT_TOOLS.map((t) => t.label).join(' · ')),
+      h('div', { class: 'hint', style: 'margin-top:0' }, kitTools().map((t) => t.label).join(' · ')),
       h('div', { class: 'row', style: 'margin-top:10px; align-items:center' },
         h('button', { class: 'primary', disabled: !missing.length, onclick: () => {
           state.tools.push(...defaultTools().filter((t) => !have.has(urlKey(t.url))));
@@ -2049,6 +2233,9 @@ async function boot() {
   chromeProfiles = await window.api.chromeProfiles();
   asanaState = await window.api.asanaGet();
   window.api.onAsana(onAsanaUpdate);
+  cloudState = await window.api.cloudGet();
+  window.api.onCloud(onCloudUpdate);
+  window.api.onDataRemote(onDataRemote);
   render();
   window.api.onUpdate(showUpdate);
   window.api.onUpdateProgress(showUpdateProgress);
