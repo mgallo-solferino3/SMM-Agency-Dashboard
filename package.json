@@ -1,7 +1,7 @@
 {
   "name": "solferino3-dashboard",
   "productName": "Solferino 3 Dashboard",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "Dashboard locale per Mac e Windows con link, strumenti e utility per il lavoro di agenzia",
   "main": "main.js",
   "scripts": {
