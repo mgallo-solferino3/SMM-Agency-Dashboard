@@ -1,5 +1,5 @@
-// Backend di Solferino 3 Dashboard: ruoli utente/admin, sincronizzazione dei dati personali
-// e contenuti condivisi (kit di link).
+// Backend di Solferino 3 Dashboard: ruoli utente/admin, sincronizzazione dei dati personali,
+// contenuti condivisi (kit di link) e appunti condivisi tra colleghi.
 //
 // Accesso con codice per dispositivo: un admin genera un codice monouso per un utente, che lo inserisce
 // nell'app e riceve un token di sessione (Authorization: Bearer). Un utente già collegato può generare
@@ -11,6 +11,8 @@ const CODE_DAYS = 7;
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const MAX_DATA_BYTES = 1_500_000;
 const SHARED_KEYS = new Set(['tools']);
+const MAX_NOTE_BYTES = 500_000;
+const MAX_NOTE_RECIPIENTS = 50;
 
 export default {
   async fetch(req, env) {
@@ -53,6 +55,28 @@ async function route(req, env) {
     return json(row ? { rev: row.rev, data: JSON.parse(row.data), updatedAt: row.updated_at } : { rev: 0, data: null, updatedAt: 0 });
   }
   if (p === '/api/data' && m === 'PUT') return putData(req, env, me);
+
+  // Colleghi a cui condividere un appunto (nome ed email: niente ruoli o accessi)
+  if (p === '/api/team' && m === 'GET') {
+    const { results } = await env.DB.prepare('SELECT email, name FROM users ORDER BY name, email').all();
+    return json(results);
+  }
+  // Appunti che altri hanno condiviso con me, con il nome del proprietario
+  if (p === '/api/notes' && m === 'GET') {
+    const { results } = await env.DB.prepare(
+      `SELECT n.owner, n.id, n.title, n.date, n.html, n.updated_at, u.name AS owner_name FROM shared_notes n
+       LEFT JOIN users u ON u.email = n.owner
+       WHERE n.owner != ?1 AND EXISTS (SELECT 1 FROM json_each(n.shared_with) WHERE value = ?1)
+       ORDER BY n.date DESC`).bind(me.email).all();
+    return json(results.map((n) => ({ owner: n.owner, ownerName: n.owner_name || '', id: n.id, title: n.title,
+      date: n.date, html: n.html, updatedAt: n.updated_at })));
+  }
+  const note = p.match(/^\/api\/notes\/([A-Za-z0-9_-]{1,64})$/);
+  if (note && m === 'PUT') return putNote(req, env, me, note[1]);
+  if (note && m === 'DELETE') {
+    await env.DB.prepare('DELETE FROM shared_notes WHERE owner = ? AND id = ?').bind(me.email, note[1]).run();
+    return json({ ok: true });
+  }
 
   const shared = p.match(/^\/api\/shared\/([a-z]+)$/);
   if (shared && SHARED_KEYS.has(shared[1])) {
@@ -203,6 +227,36 @@ async function putShared(req, env, me, key) {
      ON CONFLICT (key) DO UPDATE SET rev = rev + 1, data = excluded.data, updated_by = excluded.updated_by, updated_at = excluded.updated_at`)
     .bind(key, JSON.stringify(data), me.email, now).run();
   return json({ ok: true, updatedAt: now });
+}
+
+// Il proprietario pubblica (o aggiorna) la copia condivisa del suo appunto; senza destinatari la toglie
+async function putNote(req, env, me, id) {
+  const text = await req.text();
+  if (text.length > MAX_NOTE_BYTES) throw new HttpError(413, 'too_large', 'Appunto troppo grande per la condivisione');
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch (_) {
+    throw new HttpError(400, 'invalid', 'Richiesta non valida');
+  }
+  const { title, date, html, sharedWith } = body || {};
+  if (typeof title !== 'string' || typeof html !== 'string' || !Array.isArray(sharedWith)) throw new HttpError(400, 'invalid', 'Appunto non valido');
+  const emails = [...new Set(sharedWith.map((e) => String(e).toLowerCase()))].filter((e) => e !== me.email);
+  if (emails.length > MAX_NOTE_RECIPIENTS) throw new HttpError(400, 'invalid', 'Troppi destinatari');
+  if (!emails.length) {
+    await env.DB.prepare('DELETE FROM shared_notes WHERE owner = ? AND id = ?').bind(me.email, id).run();
+    return json({ ok: true, sharedWith: [] });
+  }
+  // Solo colleghi invitati: gli altri indirizzi si scartano
+  const { results } = await env.DB.prepare(`SELECT email FROM users WHERE email IN (${emails.map(() => '?').join(',')})`).bind(...emails).all();
+  const valid = results.map((r) => r.email);
+  const now = Date.now();
+  await env.DB.prepare(
+    `INSERT INTO shared_notes (owner, id, title, date, html, shared_with, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (owner, id) DO UPDATE SET title = excluded.title, date = excluded.date, html = excluded.html,
+       shared_with = excluded.shared_with, updated_at = excluded.updated_at`)
+    .bind(me.email, id, title.slice(0, 300), String(date || '').slice(0, 10), html, JSON.stringify(valid), now).run();
+  return json({ ok: true, sharedWith: valid, updatedAt: now });
 }
 
 function isToolList(d) {

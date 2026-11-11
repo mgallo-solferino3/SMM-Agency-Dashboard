@@ -853,6 +853,7 @@ function appuntoForm(a) {
       if (appuntoFormFor === 'new') appuntoFormFor = a.id; // da qui in poi il modulo modifica l'appunto appena creato
     }
     save();
+    if (a.sharedWith?.length) pushSharedNote(a);
     status.textContent = `Salvato automaticamente alle ${new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
     cancelBtn.textContent = 'Chiudi'; // le modifiche sono già salvate: non c'è più niente da annullare
   };
@@ -863,6 +864,7 @@ function appuntoForm(a) {
     if (!v.title) return titleInput.focus();
     if (a) Object.assign(a, v);
     else state.appunti.push({ id: uid(), ...v });
+    if (a?.sharedWith?.length && lastSaved !== JSON.stringify(v)) pushSharedNote(a);
     stopAppuntoAutosave();
     appuntoFormFor = null; save(); render();
   } }, 'Salva');
@@ -881,31 +883,184 @@ function appuntoForm(a) {
   return form;
 }
 function renderAppunti(view) {
-  view.append(h('div', { class: 'row', style: 'margin-bottom:14px' },
+  const connected = cloudState.connected && cloudState.user;
+  if (connected && teamList === null) loadTeam();
+  const others = connected ? cloudState.sharedNotes || [] : [];
+  const anyShared = others.length > 0 || state.appunti.some((a) => a.sharedWith?.length);
+  if (!anyShared) appuntiFilter = 'all';
+  view.append(h('div', { class: 'row', style: 'margin-bottom:14px; align-items:center; flex-wrap:wrap' },
     h('button', { class: 'primary', onclick: () => { appuntoFormFor = appuntoFormFor === 'new' ? null : 'new'; render(); } },
-      appuntoFormFor === 'new' ? 'Annulla' : '+ Nuovo appunto')));
+      appuntoFormFor === 'new' ? 'Annulla' : '+ Nuovo appunto'),
+    anyShared && h('div', { class: 'chips', style: 'margin:0 0 0 auto' }, [['all', 'Tutti'], ['mine', 'Miei'], ['shared', 'Condivisi con me']].map(([id, label]) =>
+      h('button', { class: 'chip' + (appuntiFilter === id ? ' active' : ''), onclick: () => { appuntiFilter = id; render(); } }, label)))));
   if (appuntoFormFor === 'new') view.append(appuntoForm(null));
-  const list = [...state.appunti].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  if (!list.length && appuntoFormFor !== 'new') view.append(h('div', { class: 'empty' }, 'Nessun appunto.'));
-  for (const a of list) {
-    if (appuntoFormFor === a.id) { view.append(appuntoForm(a)); continue; }
-    const body = h('div', { class: 'appunto-body' });
-    body.innerHTML = a.html || '';
-    const tasks = a.asanaTasks || [];
-    view.append(h('div', { class: 'card appunto' },
-      h('div', { class: 'card-head' },
-        h('div', { style: 'flex:1; min-width:0' }, h('h3', null, a.title), h('div', { class: 'sub' }, formatDate(a.date))),
-        asanaState.connected && h('button', { class: 'ghost small', title: 'Crea un task su Asana da questo appunto',
-          onclick: () => asanaTaskDialog(a) }, icon('list-check'), ' Task Asana'),
-        editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => { appuntoFormFor = a.id; render(); } }, icon('pen')),
-        editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => confirmBox(`Eliminare "${a.title}"?`, () => {
-          state.appunti = state.appunti.filter((x) => x.id !== a.id); save(); render();
-        }) }, icon('xmark'))),
-      body,
-      tasks.length > 0 && h('div', { class: 'appunto-tasks' }, tasks.map((t) =>
-        h('button', { class: 'chip', title: 'Apri su Asana', onclick: () => window.api.openExternal(t.url) },
-          icon('list-check'), ' ', t.name, t.project && h('span', { class: 'appunto-task-project' }, ' · ' + t.project))))));
+  const list = [
+    ...(appuntiFilter === 'shared' ? [] : state.appunti.map((a) => ({ a, mine: true }))),
+    ...(appuntiFilter === 'mine' ? [] : others.map((a) => ({ a, mine: false }))),
+  ].sort((x, y) => (y.a.date || '').localeCompare(x.a.date || ''));
+  if (!list.length && appuntoFormFor !== 'new') view.append(h('div', { class: 'empty' },
+    appuntiFilter === 'shared' ? 'Nessun appunto condiviso con te.' : 'Nessun appunto.'));
+  for (const { a, mine } of list) {
+    if (mine && appuntoFormFor === a.id) { view.append(appuntoForm(a)); continue; }
+    view.append(mine ? appuntoCard(a, connected) : sharedAppuntoCard(a));
   }
+}
+
+function appuntoCard(a, connected) {
+  const body = h('div', { class: 'appunto-body' });
+  body.innerHTML = a.html || '';
+  const tasks = a.asanaTasks || [];
+  const shared = a.sharedWith || [];
+  return h('div', { class: 'card appunto' },
+    h('div', { class: 'card-head' },
+      h('div', { style: 'flex:1; min-width:0' },
+        h('h3', null, a.title, shared.length > 0 && ownerTag(cloudState.user?.email || '', 'Tu')),
+        h('div', { class: 'sub' }, formatDate(a.date),
+          shared.length > 0 && ` · condiviso con ${shared.map(personName).join(', ')}`)),
+      connected && h('button', { class: 'ghost small', title: 'Condividi con i colleghi', onclick: () => shareDialog(a) },
+        icon('share-nodes'), shared.length ? ' Condiviso' : ' Condividi'),
+      asanaState.connected && h('button', { class: 'ghost small', title: 'Crea un task su Asana da questo appunto',
+        onclick: () => asanaTaskDialog(a) }, icon('list-check'), ' Task Asana'),
+      editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => { appuntoFormFor = a.id; render(); } }, icon('pen')),
+      editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => confirmBox(
+        shared.length ? `Eliminare "${a.title}"? Sparisce anche per i colleghi con cui è condiviso.` : `Eliminare "${a.title}"?`, () => {
+          state.appunti = state.appunti.filter((x) => x.id !== a.id);
+          if (shared.length) unshareNote(a.id);
+          save(); render();
+        }) }, icon('xmark'))),
+    body,
+    tasks.length > 0 && h('div', { class: 'appunto-tasks' }, tasks.map((t) =>
+      h('button', { class: 'chip', title: 'Apri su Asana', onclick: () => window.api.openExternal(t.url) },
+        icon('list-check'), ' ', t.name, t.project && h('span', { class: 'appunto-task-project' }, ' · ' + t.project)))));
+}
+
+// Appunto di un collega: in sola lettura, con il nome del proprietario
+function sharedAppuntoCard(n) {
+  const body = h('div', { class: 'appunto-body' });
+  body.innerHTML = sanitizeHtml(n.html);
+  return h('div', { class: 'card appunto' },
+    h('div', { class: 'card-head' },
+      h('div', { style: 'flex:1; min-width:0' },
+        h('h3', null, n.title, ownerTag(n.owner, n.ownerName || personName(n.owner))),
+        h('div', { class: 'sub' }, formatDate(n.date), ' · condiviso con te'))),
+    body);
+}
+
+// --- Appunti condivisi con i colleghi (account Solferino 3): il proprietario pubblica una copia
+// in sola lettura, aggiornata a ogni modifica; se l'invio non riesce si riprova alla sincronizzazione.
+let teamList = null; // [{ email, name }], null = da caricare
+let appuntiFilter = 'all'; // all | mine | shared
+let retryingShares = false;
+
+async function loadTeam() {
+  teamList = [];
+  const res = await window.api.cloudTeam();
+  teamList = res.ok ? res.result : null;
+  if (res.ok && page === 'appunti' && !appuntoFormFor) render();
+  return res;
+}
+
+const personName = (email) => teamList?.find((u) => u.email === email)?.name || email.split('@')[0];
+const ownerTag = (email, name) => h('span', { class: 'project-tag', style: `--tag:${colorFor(email)}`, title: email }, icon('user'), ' ', name);
+
+async function pushSharedNote(a) {
+  const res = await window.api.cloudShareNote({ id: a.id, title: a.title, date: a.date, html: a.html, sharedWith: a.sharedWith || [] });
+  // Nel frattempo i dati possono essere stati ricaricati: si aggiorna l'appunto attuale con lo stesso id
+  const cur = state.appunti.find((x) => x.id === a.id);
+  if (!cur) return res;
+  if (res.ok) {
+    delete cur.shareDirty;
+    if (res.result.sharedWith.length) cur.sharedWith = res.result.sharedWith;
+    else delete cur.sharedWith;
+  } else cur.shareDirty = true;
+  save();
+  return res;
+}
+
+async function unshareNote(id) {
+  const res = await window.api.cloudUnshareNote(id);
+  if (!res.ok && !state.unshareQueue.includes(id)) { state.unshareQueue.push(id); save(); }
+  return res;
+}
+
+async function retrySharedNotes() {
+  if (retryingShares || !cloudState.connected || cloudState.error) return;
+  retryingShares = true;
+  try {
+    for (const a of state.appunti.filter((x) => x.shareDirty)) await pushSharedNote(a);
+    for (const id of [...state.unshareQueue]) {
+      const res = await window.api.cloudUnshareNote(id);
+      if (res.ok) { state.unshareQueue = state.unshareQueue.filter((x) => x !== id); save(); }
+    }
+  } finally {
+    retryingShares = false;
+  }
+}
+
+async function shareDialog(a) {
+  if (!teamList?.length) {
+    const res = await loadTeam();
+    if (!res.ok) return toast(res.error);
+  }
+  const me = cloudState.user.email;
+  const people = teamList.filter((u) => u.email !== me);
+  if (!people.length) return toast('Non ci sono altri colleghi nell\'account');
+  const chosen = new Set(a.sharedWith || []);
+  const boxes = people.map((u) => h('input', { type: 'checkbox', checked: chosen.has(u.email),
+    onchange: (e) => { e.target.checked ? chosen.add(u.email) : chosen.delete(u.email); } }));
+  const dlg = $('#modal');
+  const okBtn = h('button', { type: 'submit', class: 'primary' }, 'Condividi');
+  const form = h('form', { method: 'dialog' },
+    h('h2', null, 'Condividi appunto'),
+    h('p', { class: 'hint' }, `"${a.title}" sarà visibile, in sola lettura, ai colleghi scelti; le tue modifiche arrivano anche a loro.`),
+    h('div', { style: 'max-height:50vh; overflow:auto' }, people.map((u, i) => h('label', { class: 'tool-toggle' },
+      boxes[i], h('span', null, u.name || u.email), u.name && h('span', { class: 'tool-note' }, u.email)))),
+    h('div', { class: 'modal-actions' },
+      h('button', { type: 'button', class: 'ghost', style: 'margin-right:auto', onclick: () => {
+        const all = boxes.some((b) => !b.checked);
+        boxes.forEach((b, i) => { b.checked = all; all ? chosen.add(people[i].email) : chosen.delete(people[i].email); });
+      } }, 'Tutti / nessuno'),
+      h('button', { type: 'button', class: 'ghost', onclick: () => dlg.close() }, 'Annulla'), okBtn));
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const before = a.sharedWith || [];
+    const list = [...chosen];
+    if (!list.length && !before.length) return dlg.close();
+    okBtn.disabled = true;
+    okBtn.textContent = 'Condivisione…';
+    a.sharedWith = list;
+    const res = await pushSharedNote(a);
+    okBtn.disabled = false;
+    okBtn.textContent = 'Condividi';
+    if (!res.ok) {
+      // Niente da riprovare: si torna alla condivisione di prima
+      const cur = state.appunti.find((x) => x.id === a.id);
+      if (cur) { cur.sharedWith = before; if (!before.length) delete cur.sharedWith; delete cur.shareDirty; save(); }
+      return toast(res.error);
+    }
+    dlg.close();
+    render();
+    toast(list.length ? `Condiviso con ${list.map(personName).join(', ')}` : 'Appunto non più condiviso');
+  });
+  dlg.replaceChildren(form);
+  dlg.showModal();
+}
+
+// HTML degli appunti dei colleghi: solo la formattazione dell'editor, senza attributi
+const SAFE_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'DEL', 'UL', 'OL', 'LI', 'BR', 'DIV', 'P', 'SPAN', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
+function sanitizeHtml(html) {
+  const doc = new DOMParser().parseFromString(html || '', 'text/html');
+  const clean = (node) => {
+    for (const n of [...node.childNodes]) {
+      if (n.nodeType === Node.TEXT_NODE) continue;
+      if (n.nodeType !== Node.ELEMENT_NODE || /^(SCRIPT|STYLE|IFRAME|OBJECT|EMBED|TEMPLATE|svg|math)$/i.test(n.tagName)) { n.remove(); continue; }
+      clean(n);
+      if (SAFE_TAGS.has(n.tagName)) [...n.attributes].forEach((at) => n.removeAttribute(at.name));
+      else n.replaceWith(...n.childNodes);
+    }
+  };
+  clean(doc.body);
+  return doc.body.innerHTML;
 }
 
 // --- Task Asana da un appunto: nome, descrizione (il testo dell'appunto), progetto, persona e scadenza
@@ -1817,9 +1972,13 @@ const kitUrlKey = (u) => normalizeUrl(u).toLowerCase().replace(/\/+$/, '');
 
 function onCloudUpdate(c) {
   const roleChanged = (c.user && c.user.role) !== (cloudState.user && cloudState.user.role);
+  const notesChanged = JSON.stringify(c.sharedNotes || []) !== JSON.stringify(cloudState.sharedNotes || []);
+  const synced = c.syncedAt !== cloudState.syncedAt;
   cloudState = c;
-  if (!c.connected) { adminUsers = null; kitDraft = null; }
-  if (page === 'settings' || roleChanged) render();
+  if (!c.connected) { adminUsers = null; kitDraft = null; teamList = null; }
+  if (synced) teamList = null; // nuovi colleghi o nomi cambiati
+  if (page === 'settings' || roleChanged || (page === 'appunti' && (notesChanged || synced) && !appuntoFormFor)) render();
+  if (synced) retrySharedNotes();
 }
 
 // Dati arrivati da un altro dispositivo (o versione online più recente)
@@ -2231,6 +2390,7 @@ function normalizeState(d) {
     todos: Array.isArray(d.todos) ? d.todos : [],
     notes: typeof d.notes === 'string' ? d.notes : '',
     appunti: Array.isArray(d.appunti) ? d.appunti : [],
+    unshareQueue: Array.isArray(d.unshareQueue) ? d.unshareQueue : [], // appunti eliminati da togliere ancora dalla condivisione
     snippets: Array.isArray(d.snippets) ? d.snippets : [],
     ...Object.fromEntries(RECORD_KEYS.map((k) => [k, Array.isArray(d[k]) ? d[k] : []])),
     pixieset: Array.isArray(d.pixieset) ? d.pixieset : [],
@@ -2313,6 +2473,7 @@ async function boot() {
   window.api.onCloud(onCloudUpdate);
   window.api.onDataRemote(onDataRemote);
   render();
+  retrySharedNotes();
   window.api.onUpdate(showUpdate);
   window.api.onUpdateProgress(showUpdateProgress);
   window.api.checkUpdate().then(showUpdate);

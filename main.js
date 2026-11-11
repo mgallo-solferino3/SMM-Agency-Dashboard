@@ -1050,7 +1050,7 @@ const CLOUD_FILE = () => path.join(app.getPath('userData'), 'cloud.json');
 const CLOUD_POLL_MS = 5 * 60 * 1000;
 const CLOUD_FOCUS_MIN_GAP_MS = 60 * 1000;
 const CLOUD_PUSH_DELAY_MS = 3000;
-const CLOUD_EMPTY = { token: '', user: null, rev: 0, dirty: false, syncedAt: 0, error: '', sharedTools: null };
+const CLOUD_EMPTY = { token: '', user: null, rev: 0, dirty: false, syncedAt: 0, error: '', sharedTools: null, sharedNotes: [] };
 
 let cloud = { ...CLOUD_EMPTY };
 let cloudSyncing = false;
@@ -1073,7 +1073,7 @@ function saveCloud() {
 
 // Stato per l'interfaccia, senza il token
 const cloudPublic = () => ({ connected: !!cloud.token, user: cloud.user, syncedAt: cloud.syncedAt, error: cloud.error,
-  dirty: cloud.dirty, syncing: cloudSyncing, sharedTools: cloud.sharedTools });
+  dirty: cloud.dirty, syncing: cloudSyncing, sharedTools: cloud.sharedTools, sharedNotes: cloud.sharedNotes });
 
 function sendCloud() {
   if (win && !win.isDestroyed()) win.webContents.send('cloud:update', cloudPublic());
@@ -1161,6 +1161,8 @@ async function syncCloud() {
     cloud.user = await cloudFetch('GET', '/api/me');
     const shared = await cloudFetch('GET', '/api/shared/tools');
     cloud.sharedTools = Array.isArray(shared.data) ? shared.data : null;
+    const notes = await cloudFetch('GET', '/api/notes');
+    cloud.sharedNotes = Array.isArray(notes) ? notes : [];
     const remote = await cloudFetch('GET', '/api/data');
     if (remote.rev && remote.rev !== cloud.rev) applyRemoteData(remote.data, remote.rev, { conflict: cloud.dirty || !cloud.rev });
     else if (!remote.rev) {
@@ -1248,6 +1250,11 @@ ipcMain.handle('cloud:invite', cloudCall((email, name, role) => cloudFetch('POST
 ipcMain.handle('cloud:user-code', cloudCall((email) => cloudFetch('POST', `/api/users/${encodeURIComponent(email)}/code`)));
 ipcMain.handle('cloud:set-role', cloudCall((email, role) => cloudFetch('PATCH', `/api/users/${encodeURIComponent(email)}`, { role })));
 ipcMain.handle('cloud:remove-user', cloudCall((email) => cloudFetch('DELETE', `/api/users/${encodeURIComponent(email)}`)));
+// Appunti condivisi: il proprietario pubblica la copia per i colleghi scelti (lista vuota = non più condiviso)
+ipcMain.handle('cloud:team', cloudCall(() => cloudFetch('GET', '/api/team')));
+ipcMain.handle('cloud:share-note', cloudCall((n) => cloudFetch('PUT', `/api/notes/${encodeURIComponent(n.id)}`,
+  { title: String(n.title || ''), date: String(n.date || ''), html: String(n.html || ''), sharedWith: Array.isArray(n.sharedWith) ? n.sharedWith : [] })));
+ipcMain.handle('cloud:unshare-note', cloudCall((id) => cloudFetch('DELETE', `/api/notes/${encodeURIComponent(id)}`)));
 ipcMain.handle('cloud:publish-tools', cloudCall(async (tools) => {
   await cloudFetch('PUT', '/api/shared/tools', { data: tools });
   cloud.sharedTools = tools;

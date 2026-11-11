@@ -42,3 +42,15 @@ CREATE TABLE IF NOT EXISTS shared (
   updated_by TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+
+-- Appunti condivisi dal proprietario con alcuni colleghi (copia in sola lettura, aggiornata a ogni modifica)
+CREATE TABLE IF NOT EXISTS shared_notes (
+  owner       TEXT NOT NULL,
+  id          TEXT NOT NULL,          -- id dell'appunto nei dati del proprietario
+  title       TEXT NOT NULL,
+  date        TEXT NOT NULL DEFAULT '',
+  html        TEXT NOT NULL,
+  shared_with TEXT NOT NULL,          -- array JSON di email
+  updated_at  INTEGER NOT NULL,
+  PRIMARY KEY (owner, id)
+);
