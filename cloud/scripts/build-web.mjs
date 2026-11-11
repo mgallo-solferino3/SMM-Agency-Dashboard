@@ -37,7 +37,8 @@ writeFileSync(join(out, 'styles.css'), darkAsClass(readFileSync(join(root, 'rend
 
 // ?v= evita che il browser tenga i file della versione precedente
 const html = readFileSync(join(root, 'renderer', 'index.html'), 'utf8')
-  .replace('<link rel="stylesheet" href="styles.css">', `<link rel="stylesheet" href="styles.css?v=${version}">
+  .replace('<link rel="stylesheet" href="styles.css">', `<meta name="robots" content="noindex, nofollow">
+  <link rel="stylesheet" href="styles.css?v=${version}">
   <link rel="stylesheet" href="web.css?v=${version}">
   <link rel="icon" href="icon.png">
   <link rel="apple-touch-icon" href="icon.png">
@@ -54,4 +55,6 @@ writeFileSync(join(out, 'manifest.webmanifest'), JSON.stringify({
   background_color: '#f1edeb', theme_color: '#6295a5',
   icons: [{ src: 'icon.png', sizes: '1024x1024', type: 'image/png', purpose: 'any' }],
 }, null, 2));
+// Area riservata: nessun motore di ricerca (il Worker manda anche X-Robots-Tag: noindex)
+writeFileSync(join(out, 'robots.txt'), 'User-agent: *\nDisallow: /\n');
 console.log(`Versione web ${version} pronta in cloud/public`);

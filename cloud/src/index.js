@@ -16,18 +16,105 @@ const SHARED_KEYS = new Set(['tools']);
 const MAX_NOTE_BYTES = 500_000;
 const MAX_NOTE_RECIPIENTS = 50;
 const ASANA_API = 'https://app.asana.com/api/1.0';
+const WEB_COOKIE = 's3web';
+const WEB_COOKIE_DAYS = 365;
+const WEB_PUBLIC = /^\/(robots\.txt|icon\.png|fonts\/[\w.-]+)$/; // servono anche alla pagina della password
 
 export default {
   async fetch(req, env) {
+    const { pathname } = new URL(req.url);
+    let res;
     try {
-      return await route(req, env);
+      res = /^\/(api|auth)\//.test(pathname) ? await route(req, env) : await web(req, env);
     } catch (err) {
-      if (err instanceof HttpError) return json({ error: err.code, message: err.message }, err.status);
-      console.error(err);
-      return json({ error: 'server', message: 'Errore del server' }, 500);
+      if (err instanceof HttpError) res = json({ error: err.code, message: err.message }, err.status);
+      else {
+        console.error(err);
+        res = json({ error: 'server', message: 'Errore del server' }, 500);
+      }
     }
+    // Niente motori di ricerca, su tutto (anche robots.txt dice Disallow)
+    res = new Response(res.body, res);
+    res.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+    return res;
   },
 };
+
+// ---------- Versione web: protetta da una password comune (segreto WEB_PASSWORD) ----------
+// La password apre le pagine; i dati restano dietro l'accesso con codice. Gli indirizzi /api e /auth
+// (usati anche dall'app desktop) non chiedono la password. Il cookie è firmato con la password stessa:
+// cambiandola (npx wrangler secret put WEB_PASSWORD) tutti i browser la devono reinserire.
+async function web(req, env) {
+  const url = new URL(req.url);
+  if (WEB_PUBLIC.test(url.pathname)) return env.ASSETS.fetch(req);
+  if (!env.WEB_PASSWORD) return passwordPage('La versione web non è ancora configurata.', 503);
+  if (url.pathname === '/web-login' && req.method === 'POST') {
+    const form = await req.formData().catch(() => null);
+    const given = String((form && form.get('password')) || '');
+    if (!(await sameText(given, env.WEB_PASSWORD))) {
+      await new Promise((r) => setTimeout(r, 1000)); // rallenta i tentativi a raffica
+      return passwordPage('Password errata.', 401);
+    }
+    const exp = Date.now() + WEB_COOKIE_DAYS * 864e5;
+    return new Response(null, { status: 303, headers: {
+      Location: '/',
+      'Set-Cookie': `${WEB_COOKIE}=${exp}.${await webSignature(exp, env)}; Path=/; Max-Age=${WEB_COOKIE_DAYS * 86400}; HttpOnly; Secure; SameSite=Lax`,
+    } });
+  }
+  if (!(await hasWebCookie(req, env))) return passwordPage('', 401);
+  return env.ASSETS.fetch(req);
+}
+
+async function webSignature(exp, env) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.WEB_PASSWORD), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return b64url(new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`web:${exp}`))));
+}
+
+async function hasWebCookie(req, env) {
+  const m = (req.headers.get('cookie') || '').match(new RegExp(`(?:^|;\\s*)${WEB_COOKIE}=(\\d+)\\.([\\w-]+)`));
+  if (!m || Number(m[1]) < Date.now()) return false;
+  return sameText(m[2], await webSignature(m[1], env));
+}
+
+// Confronto che non dipende da dove le stringhe differiscono
+async function sameText(a, b) {
+  const [x, y] = await Promise.all([sha256url(a), sha256url(b)]);
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x.charCodeAt(i) ^ y.charCodeAt(i);
+  return diff === 0;
+}
+
+function passwordPage(error, status) {
+  const esc = (t) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  return new Response(`<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow"><title>Solferino 3 Dashboard</title><link rel="icon" href="/icon.png">
+<style>
+@font-face { font-family: Fustat; src: url(/fonts/fustat-latin-wght-normal.woff2) format("woff2"); font-weight: 200 800; }
+@font-face { font-family: Antonio; src: url(/fonts/antonio-latin-wght-normal.woff2) format("woff2"); font-weight: 100 700; }
+:root { --bg: #f2eeec; --panel: #fff; --text: #02182b; --muted: #5b6470; --line: #ddd6d2; --accent: #6295a5; --danger: #c9512f; }
+@media (prefers-color-scheme: dark) { :root { --bg: #02182b; --panel: #04243d; --text: #f2eeec; --muted: #b6b4bc; --line: #20374a; --danger: #ef785a; } }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px;
+  background: var(--bg); color: var(--text); font: 14px Fustat, -apple-system, "Segoe UI", sans-serif; }
+form { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 12px; padding: 28px; background: var(--panel); border: 1px solid var(--line); border-radius: 3px; }
+.brand { font: 700 22px Antonio, sans-serif; text-transform: uppercase; display: flex; align-items: baseline; margin-bottom: 6px; }
+.brand b { color: var(--accent); font-weight: 400; margin-left: 2px; }
+.brand span { font: 500 10px Fustat, sans-serif; letter-spacing: .22em; margin-left: 10px; }
+p { margin: 0; }
+input { font: inherit; font-size: 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 3px; background: transparent; color: inherit; }
+input:focus { outline: none; border-color: var(--accent); }
+button { font: inherit; font-size: 12px; text-transform: uppercase; letter-spacing: .16em; padding: 11px; border: 0; border-radius: 3px; background: var(--accent); color: #fff; cursor: pointer; }
+.error { color: var(--danger); font-size: 12px; min-height: 1em; }
+</style></head>
+<body><form method="post" action="/web-login">
+<div class="brand">Solferino<b>3</b><span>Dashboard</span></div>
+<p>Area riservata: inserisci la password.</p>
+<input type="password" name="password" autocomplete="current-password" autofocus required>
+<button type="submit">Entra</button>
+<div class="error">${esc(error)}</div>
+</form></body></html>`, { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } });
+}
 
 class HttpError extends Error {
   constructor(status, code, message = code) {
@@ -43,7 +130,6 @@ async function route(req, env) {
   const m = req.method;
 
   if (p === '/auth/redeem' && m === 'POST') return redeem(req, env);
-  if (p === '/' && m === 'GET') return new Response('Solferino 3 Dashboard API', { headers: { 'content-type': 'text/plain; charset=utf-8' } });
 
   const me = await authenticate(req, env);
   if (p === '/auth/logout' && m === 'POST') {

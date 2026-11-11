@@ -2,9 +2,12 @@ name = "solferino3-dashboard-api"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 
-# Versione web: i file di public/ (creati da scripts/build-web.mjs); gli indirizzi /api e /auth li gestisce il Worker
+# Versione web: i file di public/ (creati da scripts/build-web.mjs). Passa prima dal Worker, che chiede la password;
+# gli indirizzi /api e /auth sono le API (anche dell'app desktop)
 [assets]
 directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
 
 [vars]
 # Gli admin possono invitare solo indirizzi di questo dominio
