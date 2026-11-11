@@ -1050,7 +1050,10 @@ const CLOUD_FILE = () => path.join(app.getPath('userData'), 'cloud.json');
 const CLOUD_POLL_MS = 5 * 60 * 1000;
 const CLOUD_FOCUS_MIN_GAP_MS = 60 * 1000;
 const CLOUD_PUSH_DELAY_MS = 3000;
-const CLOUD_EMPTY = { token: '', user: null, rev: 0, dirty: false, syncedAt: 0, error: '', sharedTools: null, sharedNotes: [] };
+const CLOUD_NOTES_POLL_MS = 2 * 60 * 1000; // appunti condivisi: si controllano più spesso, per avvisare dei nuovi
+const NOTES_NOTIFY_MAX = 3;
+const CLOUD_EMPTY = { token: '', user: null, rev: 0, dirty: false, syncedAt: 0, error: '', sharedTools: null,
+  sharedNotes: [], knownNotes: null, unseenNotes: [] }; // knownNotes null = primo controllo: niente avvisi
 
 let cloud = { ...CLOUD_EMPTY };
 let cloudSyncing = false;
@@ -1073,7 +1076,8 @@ function saveCloud() {
 
 // Stato per l'interfaccia, senza il token
 const cloudPublic = () => ({ connected: !!cloud.token, user: cloud.user, syncedAt: cloud.syncedAt, error: cloud.error,
-  dirty: cloud.dirty, syncing: cloudSyncing, sharedTools: cloud.sharedTools, sharedNotes: cloud.sharedNotes });
+  dirty: cloud.dirty, syncing: cloudSyncing, sharedTools: cloud.sharedTools,
+  sharedNotes: cloud.sharedNotes, unseenNotes: cloud.unseenNotes });
 
 function sendCloud() {
   if (win && !win.isDestroyed()) win.webContents.send('cloud:update', cloudPublic());
@@ -1161,8 +1165,7 @@ async function syncCloud() {
     cloud.user = await cloudFetch('GET', '/api/me');
     const shared = await cloudFetch('GET', '/api/shared/tools');
     cloud.sharedTools = Array.isArray(shared.data) ? shared.data : null;
-    const notes = await cloudFetch('GET', '/api/notes');
-    cloud.sharedNotes = Array.isArray(notes) ? notes : [];
+    await fetchSharedNotes();
     const remote = await cloudFetch('GET', '/api/data');
     if (remote.rev && remote.rev !== cloud.rev) applyRemoteData(remote.data, remote.rev, { conflict: cloud.dirty || !cloud.rev });
     else if (!remote.rev) {
@@ -1177,6 +1180,77 @@ async function syncCloud() {
     cloudSyncing = false;
     if (cloud.token) saveCloud();
     sendCloud();
+  }
+}
+
+// ---- Appunti condivisi: cache degli appunti miei e ricevuti, avviso per quelli nuovi ricevuti ----
+const noteKey = (n) => `${n.owner}/${n.id}`;
+
+async function fetchSharedNotes() {
+  const notes = await cloudFetch('GET', '/api/shared-notes');
+  if (!Array.isArray(notes)) return;
+  const me = cloud.user && cloud.user.email;
+  const received = notes.filter((n) => n.owner !== me && !n.deleted);
+  const firstCheck = !Array.isArray(cloud.knownNotes);
+  const known = new Set(cloud.knownNotes || []);
+  const fresh = received.filter((n) => !known.has(noteKey(n)));
+  const present = new Set(received.map(noteKey));
+  if (!firstCheck) notifyNotes(fresh);
+  cloud.sharedNotes = notes;
+  cloud.knownNotes = [...present];
+  cloud.unseenNotes = firstCheck ? [] : [...new Set([...cloud.unseenNotes.filter((k) => present.has(k)), ...fresh.map(noteKey)])];
+}
+
+function notifyNotes(fresh) {
+  if (!fresh.length || !Notification.isSupported()) return;
+  const notifIcon = customIcon ? nativeImage.createFromDataURL(customIcon) : ICON_PATH;
+  const from = (n) => n.ownerName || n.owner.split('@')[0];
+  const items = fresh.length > NOTES_NOTIFY_MAX
+    ? [{ title: `${fresh.length} appunti condivisi con te`, body: fresh.slice(0, NOTES_NOTIFY_MAX).map((n) => `${from(n)}: ${n.title}`).join('\n') + '\n…' }]
+    : fresh.map((n) => ({ title: `${from(n)} ha condiviso un appunto`, body: n.title }));
+  for (const it of items) {
+    const n = new Notification({ ...it, icon: notifIcon });
+    n.on('click', () => {
+      hideWidget();
+      restoreMainWindow();
+      if (win && !win.isDestroyed()) win.webContents.send('cloud:open-notes');
+    });
+    n.show();
+  }
+}
+
+async function syncNotes() {
+  if (!cloud.token || cloudSyncing || !cloud.user) return;
+  try {
+    await fetchSharedNotes();
+    saveCloud();
+    sendCloud();
+  } catch (_) {} // la sincronizzazione completa riporta gli errori
+}
+
+// Salva un appunto condiviso (proprietario o destinatario) e aggiorna la cache; in caso di conflitto
+// restituisce la versione online, che l'app tiene, salvando a parte quella appena scritta
+async function saveSharedNote(n) {
+  const body = { title: String(n.title || ''), date: String(n.date || ''), html: String(n.html || ''), baseRev: Number(n.baseRev) || 0 };
+  if (Array.isArray(n.sharedWith)) body.sharedWith = n.sharedWith;
+  const replace = (note) => {
+    const key = `${n.owner}/${n.id}`;
+    cloud.sharedNotes = cloud.sharedNotes.filter((x) => noteKey(x) !== key);
+    if (note) cloud.sharedNotes.push(note);
+    saveCloud();
+    sendCloud();
+  };
+  try {
+    const res = await cloudFetch('PUT', `/api/shared-notes/${encodeURIComponent(n.owner)}/${encodeURIComponent(n.id)}`, body);
+    replace(res.note);
+    return { ok: true, note: res.note };
+  } catch (err) {
+    if (err.status === 409 && err.body && err.body.note) {
+      replace(err.body.note);
+      return { ok: false, conflict: true, note: err.body.note, error: err.message };
+    }
+    if (err.status === 403) replace(null); // non più condiviso con me
+    return { ok: false, error: String((err && err.message) || err) };
   }
 }
 
@@ -1252,9 +1326,20 @@ ipcMain.handle('cloud:set-role', cloudCall((email, role) => cloudFetch('PATCH', 
 ipcMain.handle('cloud:remove-user', cloudCall((email) => cloudFetch('DELETE', `/api/users/${encodeURIComponent(email)}`)));
 // Appunti condivisi: il proprietario pubblica la copia per i colleghi scelti (lista vuota = non più condiviso)
 ipcMain.handle('cloud:team', cloudCall(() => cloudFetch('GET', '/api/team')));
-ipcMain.handle('cloud:share-note', cloudCall((n) => cloudFetch('PUT', `/api/notes/${encodeURIComponent(n.id)}`,
-  { title: String(n.title || ''), date: String(n.date || ''), html: String(n.html || ''), sharedWith: Array.isArray(n.sharedWith) ? n.sharedWith : [] })));
-ipcMain.handle('cloud:unshare-note', cloudCall((id) => cloudFetch('DELETE', `/api/notes/${encodeURIComponent(id)}`)));
+ipcMain.handle('cloud:save-note', (_e, n) => (cloud.token ? saveSharedNote(n) : { ok: false, error: 'Account non collegato' }));
+// Proprietario: elimina (i destinatari ne tengono una copia). Destinatario: lo toglie dalla propria lista.
+ipcMain.handle('cloud:delete-note', cloudCall(async (owner, id) => {
+  await cloudFetch('DELETE', `/api/shared-notes/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`);
+  cloud.sharedNotes = cloud.sharedNotes.filter((x) => noteKey(x) !== `${owner}/${id}`);
+  saveCloud();
+  sendCloud();
+}));
+ipcMain.handle('cloud:notes-seen', () => {
+  if (!cloud.unseenNotes.length) return;
+  cloud.unseenNotes = [];
+  saveCloud();
+  sendCloud();
+});
 ipcMain.handle('cloud:publish-tools', cloudCall(async (tools) => {
   await cloudFetch('PUT', '/api/shared/tools', { data: tools });
   cloud.sharedTools = tools;
@@ -1281,6 +1366,7 @@ app.whenReady().then(() => {
   loadCloud();
   syncCloud();
   setInterval(syncCloud, CLOUD_POLL_MS);
+  setInterval(syncNotes, CLOUD_NOTES_POLL_MS);
   powerMonitor.on('resume', syncCloudIfStale);
   loadAsana();
   syncAsana();

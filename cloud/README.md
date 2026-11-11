@@ -24,6 +24,17 @@ npm run db:init     # solo la prima volta (o dopo modifiche a schema.sql compati
 npm run deploy
 ```
 
+Aggiornamenti del database: i file in `migrations/` vanno eseguiti una sola volta, in ordine, prima del deploy
+(es. `npx wrangler d1 execute solferino3-dashboard --remote --file=migrations/0002-appunti-modificabili.sql`).
+`schema.sql` contiene già tutto per un database nuovo.
+
+## Appunti condivisi
+
+Il proprietario sceglie i colleghi; chi li riceve viene avvisato (notifica di sistema) e può modificarli.
+La copia online è quella di riferimento: ogni salvataggio porta la revisione letta, e se nel frattempo qualcun altro
+ha salvato vince la versione online e quella scritta resta come appunto a parte. Se il proprietario elimina l'appunto,
+ognuno dei destinatari ne salva una copia nei propri appunti; togliendo la spunta a un collega, invece, lui non lo vede più.
+
 ## Prove in locale
 
 ```sh

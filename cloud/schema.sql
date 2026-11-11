@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS shared (
   updated_at INTEGER NOT NULL
 );
 
--- Appunti condivisi dal proprietario con alcuni colleghi (copia in sola lettura, aggiornata a ogni modifica)
+-- Appunti condivisi dal proprietario con alcuni colleghi, modificabili da tutti (rev evita di sovrascrivere
+-- le modifiche altrui). Eliminati dal proprietario restano (deleted = 1) finché ogni destinatario ne ha salvato una copia.
 CREATE TABLE IF NOT EXISTS shared_notes (
   owner       TEXT NOT NULL,
   id          TEXT NOT NULL,          -- id dell'appunto nei dati del proprietario
@@ -52,5 +53,8 @@ CREATE TABLE IF NOT EXISTS shared_notes (
   html        TEXT NOT NULL,
   shared_with TEXT NOT NULL,          -- array JSON di email
   updated_at  INTEGER NOT NULL,
+  rev         INTEGER NOT NULL DEFAULT 1,
+  updated_by  TEXT NOT NULL DEFAULT '',
+  deleted     INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (owner, id)
 );

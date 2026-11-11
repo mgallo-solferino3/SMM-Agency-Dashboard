@@ -61,22 +61,33 @@ async function route(req, env) {
     const { results } = await env.DB.prepare('SELECT email, name FROM users ORDER BY name, email').all();
     return json(results);
   }
-  // Appunti che altri hanno condiviso con me, con il nome del proprietario
+  // Appunti condivisi: i miei (non eliminati) e quelli ricevuti (anche eliminati dal proprietario,
+  // così l'app ne tiene una copia e poi conferma con DELETE)
+  if (p === '/api/shared-notes' && m === 'GET') {
+    const { results } = await env.DB.prepare(
+      `SELECT n.*, o.name AS owner_name, b.name AS updated_by_name FROM shared_notes n
+       LEFT JOIN users o ON o.email = n.owner LEFT JOIN users b ON b.email = n.updated_by
+       WHERE (n.owner = ?1 AND n.deleted = 0) OR (n.owner != ?1 AND EXISTS (SELECT 1 FROM json_each(n.shared_with) WHERE value = ?1))
+       ORDER BY n.date DESC`).bind(me.email).all();
+    return json(results.map(publicNote));
+  }
+  const sharedNote = p.match(/^\/api\/shared-notes\/([^/]+)\/([A-Za-z0-9_-]{1,64})$/);
+  if (sharedNote) {
+    const owner = decodeURIComponent(sharedNote[1]).toLowerCase();
+    if (m === 'PUT') return putNote(req, env, me, owner, sharedNote[2]);
+    if (m === 'DELETE') return deleteNote(env, me, owner, sharedNote[2]);
+  }
+  // Versione 1.13.0 dell'app: solo gli appunti ricevuti, e solo il proprietario scrive
   if (p === '/api/notes' && m === 'GET') {
     const { results } = await env.DB.prepare(
-      `SELECT n.owner, n.id, n.title, n.date, n.html, n.updated_at, u.name AS owner_name FROM shared_notes n
-       LEFT JOIN users u ON u.email = n.owner
-       WHERE n.owner != ?1 AND EXISTS (SELECT 1 FROM json_each(n.shared_with) WHERE value = ?1)
+      `SELECT n.*, o.name AS owner_name FROM shared_notes n LEFT JOIN users o ON o.email = n.owner
+       WHERE n.owner != ?1 AND n.deleted = 0 AND EXISTS (SELECT 1 FROM json_each(n.shared_with) WHERE value = ?1)
        ORDER BY n.date DESC`).bind(me.email).all();
-    return json(results.map((n) => ({ owner: n.owner, ownerName: n.owner_name || '', id: n.id, title: n.title,
-      date: n.date, html: n.html, updatedAt: n.updated_at })));
+    return json(results.map(publicNote));
   }
   const note = p.match(/^\/api\/notes\/([A-Za-z0-9_-]{1,64})$/);
-  if (note && m === 'PUT') return putNote(req, env, me, note[1]);
-  if (note && m === 'DELETE') {
-    await env.DB.prepare('DELETE FROM shared_notes WHERE owner = ? AND id = ?').bind(me.email, note[1]).run();
-    return json({ ok: true });
-  }
+  if (note && m === 'PUT') return putNote(req, env, me, me.email, note[1]);
+  if (note && m === 'DELETE') return deleteNote(env, me, me.email, note[1]);
 
   const shared = p.match(/^\/api\/shared\/([a-z]+)$/);
   if (shared && SHARED_KEYS.has(shared[1])) {
@@ -229,8 +240,20 @@ async function putShared(req, env, me, key) {
   return json({ ok: true, updatedAt: now });
 }
 
-// Il proprietario pubblica (o aggiorna) la copia condivisa del suo appunto; senza destinatari la toglie
-async function putNote(req, env, me, id) {
+function publicNote(n) {
+  return { owner: n.owner, ownerName: n.owner_name || '', id: n.id, title: n.title, date: n.date, html: n.html,
+    sharedWith: JSON.parse(n.shared_with), rev: n.rev, updatedBy: n.updated_by || n.owner,
+    updatedByName: n.updated_by_name || '', updatedAt: n.updated_at, deleted: !!n.deleted };
+}
+
+const getNote = (env, owner, id) => env.DB.prepare(
+  `SELECT n.*, o.name AS owner_name, b.name AS updated_by_name FROM shared_notes n
+   LEFT JOIN users o ON o.email = n.owner LEFT JOIN users b ON b.email = n.updated_by
+   WHERE n.owner = ? AND n.id = ?`).bind(owner, id).first();
+
+// Il proprietario pubblica (o aggiorna) l'appunto e sceglie i colleghi; senza destinatari la condivisione si toglie.
+// Chi l'ha ricevuto può modificarne titolo, data e testo. Con baseRev si scrive solo se nessuno ha salvato nel frattempo.
+async function putNote(req, env, me, owner, id) {
   const text = await req.text();
   if (text.length > MAX_NOTE_BYTES) throw new HttpError(413, 'too_large', 'Appunto troppo grande per la condivisione');
   let body;
@@ -239,24 +262,50 @@ async function putNote(req, env, me, id) {
   } catch (_) {
     throw new HttpError(400, 'invalid', 'Richiesta non valida');
   }
-  const { title, date, html, sharedWith } = body || {};
-  if (typeof title !== 'string' || typeof html !== 'string' || !Array.isArray(sharedWith)) throw new HttpError(400, 'invalid', 'Appunto non valido');
-  const emails = [...new Set(sharedWith.map((e) => String(e).toLowerCase()))].filter((e) => e !== me.email);
-  if (emails.length > MAX_NOTE_RECIPIENTS) throw new HttpError(400, 'invalid', 'Troppi destinatari');
-  if (!emails.length) {
-    await env.DB.prepare('DELETE FROM shared_notes WHERE owner = ? AND id = ?').bind(me.email, id).run();
-    return json({ ok: true, sharedWith: [] });
+  const { title, date, html, sharedWith, baseRev } = body || {};
+  if (typeof title !== 'string' || typeof html !== 'string') throw new HttpError(400, 'invalid', 'Appunto non valido');
+  const isOwner = owner === me.email;
+  const row = await getNote(env, owner, id);
+  if (!isOwner && (!row || row.deleted || !JSON.parse(row.shared_with).includes(me.email))) {
+    throw new HttpError(403, 'forbidden', 'Questo appunto non è più condiviso con te');
   }
-  // Solo colleghi invitati: gli altri indirizzi si scartano
-  const { results } = await env.DB.prepare(`SELECT email FROM users WHERE email IN (${emails.map(() => '?').join(',')})`).bind(...emails).all();
-  const valid = results.map((r) => r.email);
+  if (row && baseRev && row.rev !== baseRev && !row.deleted) {
+    return json({ error: 'conflict', message: 'Appunto modificato nel frattempo', note: publicNote(row) }, 409);
+  }
+
+  let recipients = row ? JSON.parse(row.shared_with) : [];
+  if (isOwner) {
+    if (!Array.isArray(sharedWith)) throw new HttpError(400, 'invalid', 'Appunto non valido');
+    const emails = [...new Set(sharedWith.map((e) => String(e).toLowerCase()))].filter((e) => e !== me.email);
+    if (emails.length > MAX_NOTE_RECIPIENTS) throw new HttpError(400, 'invalid', 'Troppi destinatari');
+    if (!emails.length) {
+      await env.DB.prepare('DELETE FROM shared_notes WHERE owner = ? AND id = ?').bind(owner, id).run();
+      return json({ ok: true, note: null });
+    }
+    // Solo colleghi invitati: gli altri indirizzi si scartano
+    const { results } = await env.DB.prepare(`SELECT email FROM users WHERE email IN (${emails.map(() => '?').join(',')})`).bind(...emails).all();
+    recipients = results.map((r) => r.email);
+  }
   const now = Date.now();
   await env.DB.prepare(
-    `INSERT INTO shared_notes (owner, id, title, date, html, shared_with, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO shared_notes (owner, id, title, date, html, shared_with, updated_at, rev, updated_by, deleted) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 0)
      ON CONFLICT (owner, id) DO UPDATE SET title = excluded.title, date = excluded.date, html = excluded.html,
-       shared_with = excluded.shared_with, updated_at = excluded.updated_at`)
-    .bind(me.email, id, title.slice(0, 300), String(date || '').slice(0, 10), html, JSON.stringify(valid), now).run();
-  return json({ ok: true, sharedWith: valid, updatedAt: now });
+       shared_with = excluded.shared_with, updated_at = excluded.updated_at, rev = rev + 1, updated_by = excluded.updated_by, deleted = 0`)
+    .bind(owner, id, title.slice(0, 300), String(date || '').slice(0, 10), html, JSON.stringify(recipients), now, me.email).run();
+  return json({ ok: true, note: publicNote(await getNote(env, owner, id)) });
+}
+
+// Il proprietario elimina: chi l'ha ricevuto lo vede come eliminato e ne tiene una copia nei propri appunti.
+// Chi l'ha ricevuto lo toglie dalla propria lista (o conferma di averne salvato la copia).
+async function deleteNote(env, me, owner, id) {
+  const row = await getNote(env, owner, id);
+  if (!row) return json({ ok: true });
+  const recipients = JSON.parse(row.shared_with).filter((e) => e !== me.email);
+  const gone = owner === me.email ? !recipients.length : row.deleted && !recipients.length;
+  if (gone) await env.DB.prepare('DELETE FROM shared_notes WHERE owner = ? AND id = ?').bind(owner, id).run();
+  else if (owner === me.email) await env.DB.prepare('UPDATE shared_notes SET deleted = 1, updated_at = ? WHERE owner = ? AND id = ?').bind(Date.now(), owner, id).run();
+  else await env.DB.prepare('UPDATE shared_notes SET shared_with = ? WHERE owner = ? AND id = ?').bind(JSON.stringify(recipients), owner, id).run();
+  return json({ ok: true });
 }
 
 function isToolList(d) {

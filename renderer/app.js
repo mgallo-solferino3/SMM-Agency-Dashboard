@@ -366,7 +366,7 @@ let state;
 let page = 'home';
 let editing = false;
 let query = '';
-let appuntoFormFor = null; // null | 'new' | id dell'appunto in modifica
+let appuntoFormFor = null; // null | 'new' | id dell'appunto mio in modifica | proprietario/id di uno ricevuto
 let todoArchiveOpen = false;
 
 let saveTimer;
@@ -420,10 +420,10 @@ const toolPageIds = () => [...profilePages(), ...extraPages()].map((p) => p.id);
 const visiblePages = () => [...COMMON_PAGES, ...profilePages(), ...extraPages(), SETTINGS_PAGE];
 
 function navItem(p, extraClass = '') {
-  const count = p.id === 'asana' ? asanaState.unseen.length : 0;
+  const count = p.id === 'asana' ? asanaState.unseen.length : p.id === 'appunti' ? cloudState.unseenNotes?.length || 0 : 0;
   return h('button', { class: `nav-item${p.id === page ? ' active' : ''}${extraClass}`, onclick: () => go(p.id) },
     h('span', { class: 'nav-icon' }, icon(p.icon)), p.label,
-    count > 0 && h('span', { class: 'nav-badge', title: 'Task nuovi' }, count));
+    count > 0 && h('span', { class: 'nav-badge', title: p.id === 'asana' ? 'Task nuovi' : 'Appunti condivisi nuovi' }, count));
 }
 
 function renderNav() {
@@ -441,6 +441,7 @@ function renderNav() {
 function go(id) {
   if (flushAppunto) { flushAppunto(); stopAppuntoAutosave(); }
   if (page === 'asana' && id !== 'asana') asanaHighlight = new Set();
+  if (page === 'appunti' && id !== 'appunti') notesHighlight = new Set();
   page = id;
   editing = false;
   if (id !== 'home') query = '';
@@ -827,17 +828,19 @@ function stopAppuntoAutosave() {
   flushAppunto = null;
 }
 
-function appuntoForm(a) {
+// a = appunto mio (in state.appunti) o ricevuto da un collega (received: copia online, si salva sul server)
+function appuntoForm(a, received = false) {
   // Un ridisegno ricrea il modulo: prima si salva quanto scritto in quello precedente
   if (flushAppunto) flushAppunto();
   stopAppuntoAutosave();
   const titleInput = h('input', { type: 'text', value: a?.title || '', placeholder: 'Es. Riunione cliente' });
   const dateInput = h('input', { type: 'date', value: a?.date || todayISO() });
-  const rte = richTextInput(a?.html || '');
+  const rte = richTextInput(received ? sanitizeHtml(a.html) : a?.html || '');
   const content = rte.querySelector('.rte-content');
   const status = h('span', { class: 'sheet-status' });
   const read = () => ({ title: titleInput.value.trim(), date: dateInput.value || todayISO(), html: content.innerHTML.trim() });
   let lastSaved = JSON.stringify(read());
+  const close = () => { stopAppuntoAutosave(); appuntoFormFor = null; render(); };
 
   // Senza titolo si salva come "Senza titolo"; un appunto nuovo e vuoto non si salva
   const autosave = () => {
@@ -846,29 +849,39 @@ function appuntoForm(a) {
     if (snapshot === lastSaved || (!a && !v.title && !content.textContent.trim())) return;
     lastSaved = snapshot;
     const data = { ...v, title: v.title || 'Senza titolo' };
-    if (a) Object.assign(a, data);
+    if (received) saveReceivedNote(a, data, close);
     else {
-      a = { id: uid(), ...data };
-      state.appunti.push(a);
-      if (appuntoFormFor === 'new') appuntoFormFor = a.id; // da qui in poi il modulo modifica l'appunto appena creato
+      if (a) Object.assign(a, data);
+      else {
+        a = { id: uid(), ...data };
+        state.appunti.push(a);
+        if (appuntoFormFor === 'new') appuntoFormFor = a.id; // da qui in poi il modulo modifica l'appunto appena creato
+      }
+      save();
+      if (a.sharedWith?.length) pushSharedNote(a);
     }
-    save();
-    if (a.sharedWith?.length) pushSharedNote(a);
     status.textContent = `Salvato automaticamente alle ${new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}`;
     cancelBtn.textContent = 'Chiudi'; // le modifiche sono già salvate: non c'è più niente da annullare
   };
 
-  const cancelBtn = h('button', { type: 'button', class: 'ghost', onclick: () => { stopAppuntoAutosave(); appuntoFormFor = null; render(); } }, 'Annulla');
+  const cancelBtn = h('button', { type: 'button', class: 'ghost', onclick: close }, 'Annulla');
   const saveBtn = h('button', { type: 'button', class: 'primary', onclick: () => {
     const v = read();
     if (!v.title) return titleInput.focus();
+    const changed = lastSaved !== JSON.stringify(v);
+    stopAppuntoAutosave();
+    appuntoFormFor = null;
+    if (received) {
+      if (changed) saveReceivedNote(a, v);
+      return render();
+    }
     if (a) Object.assign(a, v);
     else state.appunti.push({ id: uid(), ...v });
-    if (a?.sharedWith?.length && lastSaved !== JSON.stringify(v)) pushSharedNote(a);
-    stopAppuntoAutosave();
-    appuntoFormFor = null; save(); render();
+    if (a?.sharedWith?.length && changed) pushSharedNote(a);
+    save(); render();
   } }, 'Salva');
   const form = h('div', { class: 'card appunto-form' },
+    received && h('div', { class: 'hint', style: 'margin:0 0 10px' }, 'Appunto di ', ownerTag(a.owner, ownerName(a)), ': le modifiche le vedono anche gli altri.'),
     h('label', { class: 'field' }, h('span', null, 'Titolo'), titleInput),
     h('label', { class: 'field' }, h('span', null, 'Data'), dateInput),
     // div e non label: un label inoltra i clic al primo pulsante della toolbar (Grassetto)
@@ -882,11 +895,19 @@ function appuntoForm(a) {
   }, APPUNTO_AUTOSAVE_MS);
   return form;
 }
+
 function renderAppunti(view) {
   const connected = cloudState.connected && cloudState.user;
   if (connected && teamList === null) loadTeam();
-  const others = connected ? cloudState.sharedNotes || [] : [];
-  const anyShared = others.length > 0 || state.appunti.some((a) => a.sharedWith?.length);
+  const me = connected ? cloudState.user.email : '';
+  const received = connected ? (cloudState.sharedNotes || []).filter((n) => n.owner !== me && !n.deleted) : [];
+  // Appunti nuovi ricevuti: evidenziati finché si resta nella sezione
+  if (cloudState.unseenNotes?.length) {
+    cloudState.unseenNotes.forEach((k) => notesHighlight.add(k));
+    cloudState.unseenNotes = [];
+    window.api.cloudNotesSeen();
+  }
+  const anyShared = received.length > 0 || state.appunti.some((a) => a.sharedWith?.length);
   if (!anyShared) appuntiFilter = 'all';
   view.append(h('div', { class: 'row', style: 'margin-bottom:14px; align-items:center; flex-wrap:wrap' },
     h('button', { class: 'primary', onclick: () => { appuntoFormFor = appuntoFormFor === 'new' ? null : 'new'; render(); } },
@@ -896,12 +917,12 @@ function renderAppunti(view) {
   if (appuntoFormFor === 'new') view.append(appuntoForm(null));
   const list = [
     ...(appuntiFilter === 'shared' ? [] : state.appunti.map((a) => ({ a, mine: true }))),
-    ...(appuntiFilter === 'mine' ? [] : others.map((a) => ({ a, mine: false }))),
+    ...(appuntiFilter === 'mine' ? [] : received.map((a) => ({ a, mine: false }))),
   ].sort((x, y) => (y.a.date || '').localeCompare(x.a.date || ''));
   if (!list.length && appuntoFormFor !== 'new') view.append(h('div', { class: 'empty' },
     appuntiFilter === 'shared' ? 'Nessun appunto condiviso con te.' : 'Nessun appunto.'));
   for (const { a, mine } of list) {
-    if (mine && appuntoFormFor === a.id) { view.append(appuntoForm(a)); continue; }
+    if (appuntoFormFor === (mine ? a.id : noteKey(a))) { view.append(appuntoForm(a, !mine)); continue; }
     view.append(mine ? appuntoCard(a, connected) : sharedAppuntoCard(a));
   }
 }
@@ -911,19 +932,25 @@ function appuntoCard(a, connected) {
   body.innerHTML = a.html || '';
   const tasks = a.asanaTasks || [];
   const shared = a.sharedWith || [];
+  const me = cloudState.user?.email || '';
+  const editedBy = shared.length > 0 && a.sharedUpdatedBy && a.sharedUpdatedBy !== me ? a.sharedUpdatedBy : '';
   return h('div', { class: 'card appunto' },
     h('div', { class: 'card-head' },
       h('div', { style: 'flex:1; min-width:0' },
-        h('h3', null, a.title, shared.length > 0 && ownerTag(cloudState.user?.email || '', 'Tu')),
+        h('h3', null, a.title,
+          shared.length > 0 && ownerTag(me, 'Tu'),
+          a.keptFrom && ownerTag(a.keptFrom.email, a.keptFrom.name)),
         h('div', { class: 'sub' }, formatDate(a.date),
-          shared.length > 0 && ` · condiviso con ${shared.map(personName).join(', ')}`)),
+          shared.length > 0 && ` · condiviso con ${shared.map(personName).join(', ')}`,
+          editedBy && ` · modificato da ${personName(editedBy)}`,
+          a.keptFrom && ' · eliminato dal proprietario: questa è la tua copia')),
       connected && h('button', { class: 'ghost small', title: 'Condividi con i colleghi', onclick: () => shareDialog(a) },
         icon('share-nodes'), shared.length ? ' Condiviso' : ' Condividi'),
       asanaState.connected && h('button', { class: 'ghost small', title: 'Crea un task su Asana da questo appunto',
         onclick: () => asanaTaskDialog(a) }, icon('list-check'), ' Task Asana'),
       editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => { appuntoFormFor = a.id; render(); } }, icon('pen')),
       editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => confirmBox(
-        shared.length ? `Eliminare "${a.title}"? Sparisce anche per i colleghi con cui è condiviso.` : `Eliminare "${a.title}"?`, () => {
+        shared.length ? `Eliminare "${a.title}"? I colleghi con cui è condiviso ne tengono una copia.` : `Eliminare "${a.title}"?`, () => {
           state.appunti = state.appunti.filter((x) => x.id !== a.id);
           if (shared.length) unshareNote(a.id);
           save(); render();
@@ -934,23 +961,37 @@ function appuntoCard(a, connected) {
         icon('list-check'), ' ', t.name, t.project && h('span', { class: 'appunto-task-project' }, ' · ' + t.project)))));
 }
 
-// Appunto di un collega: in sola lettura, con il nome del proprietario
+// Appunto di un collega: modificabile, con il nome del proprietario
 function sharedAppuntoCard(n) {
   const body = h('div', { class: 'appunto-body' });
   body.innerHTML = sanitizeHtml(n.html);
+  const editedBy = n.updatedBy && n.updatedBy !== n.owner ? n.updatedByName || personName(n.updatedBy) : '';
   return h('div', { class: 'card appunto' },
     h('div', { class: 'card-head' },
       h('div', { style: 'flex:1; min-width:0' },
-        h('h3', null, n.title, ownerTag(n.owner, n.ownerName || personName(n.owner))),
-        h('div', { class: 'sub' }, formatDate(n.date), ' · condiviso con te'))),
+        h('h3', null, n.title, ownerTag(n.owner, ownerName(n)), notesHighlight.has(noteKey(n)) && h('span', { class: 'new-tag' }, 'Nuovo')),
+        h('div', { class: 'sub' }, formatDate(n.date), ' · condiviso con te', editedBy && ` · modificato da ${editedBy}`)),
+      editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => { appuntoFormFor = noteKey(n); render(); } }, icon('pen')),
+      editing && h('button', { class: 'icon', title: 'Togli dalla mia lista', onclick: () => confirmBox(
+        `Togliere "${n.title}" dalla tua lista? Non lo vedrai più; resta a ${ownerName(n)}.`, async () => {
+          const res = await window.api.cloudDeleteNote(n.owner, n.id);
+          toast(res.ok ? 'Appunto tolto dalla tua lista' : res.error);
+        }, 'Togli') }, icon('xmark'))),
     body);
 }
 
-// --- Appunti condivisi con i colleghi (account Solferino 3): il proprietario pubblica una copia
-// in sola lettura, aggiornata a ogni modifica; se l'invio non riesce si riprova alla sincronizzazione.
+// --- Appunti condivisi con i colleghi (account Solferino 3). La copia online è quella di riferimento:
+// tutti possono modificarla; la revisione (rev) evita di sovrascrivere le modifiche di un altro,
+// e in caso di conflitto la propria versione si salva come appunto a parte.
+// Il proprietario tiene l'appunto anche nei suoi dati (state.appunti) e ci riporta le modifiche dei colleghi;
+// se lo elimina, chi l'ha ricevuto ne salva una copia nei propri appunti.
 let teamList = null; // [{ email, name }], null = da caricare
 let appuntiFilter = 'all'; // all | mine | shared
+let notesHighlight = new Set(); // appunti ricevuti segnati "Nuovo" finché si resta nella sezione
 let retryingShares = false;
+const keepingNotes = new Set();
+
+const noteKey = (n) => `${n.owner}/${n.id}`;
 
 async function loadTeam() {
   teamList = [];
@@ -961,35 +1002,94 @@ async function loadTeam() {
 }
 
 const personName = (email) => teamList?.find((u) => u.email === email)?.name || email.split('@')[0];
+const ownerName = (n) => n.ownerName || personName(n.owner);
 const ownerTag = (email, name) => h('span', { class: 'project-tag', style: `--tag:${colorFor(email)}`, title: email }, icon('user'), ' ', name);
+const sharedContent = (n) => ({ title: n.title, date: n.date, html: sanitizeHtml(n.html) });
+const timeNow = () => new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+
+// In conflitto vince la versione online: quella scritta qui diventa un appunto mio a parte
+function keepMyVersion(v, n) {
+  state.appunti.push({ id: uid(), ...v, title: `${v.title} (tua versione delle ${timeNow()})` });
+  save();
+  toast(`${n.updatedByName || personName(n.updatedBy)} ha modificato l'appunto nel frattempo: la tua versione è salvata a parte`);
+}
 
 async function pushSharedNote(a) {
-  const res = await window.api.cloudShareNote({ id: a.id, title: a.title, date: a.date, html: a.html, sharedWith: a.sharedWith || [] });
+  const res = await window.api.cloudSaveNote({ owner: cloudState.user.email, id: a.id, title: a.title, date: a.date, html: a.html,
+    sharedWith: a.sharedWith || [], baseRev: a.sharedRev || 0 });
   // Nel frattempo i dati possono essere stati ricaricati: si aggiorna l'appunto attuale con lo stesso id
   const cur = state.appunti.find((x) => x.id === a.id);
   if (!cur) return res;
-  if (res.ok) {
+  if (res.ok || res.conflict) {
     delete cur.shareDirty;
-    if (res.result.sharedWith.length) cur.sharedWith = res.result.sharedWith;
-    else delete cur.sharedWith;
+    if (res.conflict) {
+      keepMyVersion({ title: cur.title, date: cur.date, html: cur.html }, res.note);
+      Object.assign(cur, sharedContent(res.note));
+      if (appuntoFormFor === cur.id) appuntoFormFor = null;
+    }
+    applySharedMeta(cur, res.note);
+    if (!appuntoFormFor && page === 'appunti') render(); // con il modulo aperto si ridisegnerebbe mentre si scrive
   } else cur.shareDirty = true;
   save();
   return res;
 }
 
+function applySharedMeta(a, n) {
+  if (n) Object.assign(a, { sharedWith: n.sharedWith, sharedRev: n.rev, sharedUpdatedBy: n.updatedBy });
+  else ['sharedWith', 'sharedRev', 'sharedUpdatedBy'].forEach((k) => delete a[k]);
+}
+
+// Modifica di un appunto ricevuto: va direttamente online
+async function saveReceivedNote(n, v, onConflict) {
+  const res = await window.api.cloudSaveNote({ owner: n.owner, id: n.id, ...v, baseRev: n.rev });
+  if (res.ok) return Object.assign(n, res.note); // il modulo aperto continua dalla nuova revisione
+  if (res.conflict) {
+    keepMyVersion(v, res.note);
+    if (onConflict) onConflict();
+    else render();
+  } else toast(res.error);
+}
+
 async function unshareNote(id) {
-  const res = await window.api.cloudUnshareNote(id);
+  const res = await window.api.cloudDeleteNote(cloudState.user.email, id);
   if (!res.ok && !state.unshareQueue.includes(id)) { state.unshareQueue.push(id); save(); }
   return res;
 }
 
-async function retrySharedNotes() {
-  if (retryingShares || !cloudState.connected || cloudState.error) return;
+// Dopo ogni sincronizzazione: modifiche dei colleghi ai miei appunti, copie di quelli eliminati, invii non riusciti
+async function syncSharedNotes() {
+  if (retryingShares || !cloudState.connected || !cloudState.user || cloudState.error) return;
   retryingShares = true;
   try {
+    const me = cloudState.user.email;
+    let changed = false;
+    for (const n of cloudState.sharedNotes || []) {
+      if (n.owner === me) {
+        const a = state.appunti.find((x) => x.id === n.id);
+        if (!a || a.shareDirty || appuntoFormFor === a.id || n.rev <= (a.sharedRev || 0)) continue;
+        Object.assign(a, sharedContent(n));
+        applySharedMeta(a, n);
+        changed = true;
+      } else if (n.deleted && !keepingNotes.has(noteKey(n))) {
+        keepingNotes.add(noteKey(n));
+        const id = `kept-${n.id}-${hueFrom(n.owner)}`;
+        if (!state.appunti.some((x) => x.id === id)) {
+          state.appunti.push({ id, ...sharedContent(n), keptFrom: { email: n.owner, name: ownerName(n) } });
+          save();
+          changed = true;
+          toast(`${ownerName(n)} ha eliminato "${n.title}": la copia resta nei tuoi appunti`);
+        }
+        await window.api.cloudDeleteNote(n.owner, n.id); // copia salvata: il server può dimenticarlo
+        keepingNotes.delete(noteKey(n));
+      }
+    }
+    if (changed) {
+      save();
+      if (page === 'appunti' && !appuntoFormFor) render();
+    }
     for (const a of state.appunti.filter((x) => x.shareDirty)) await pushSharedNote(a);
     for (const id of [...state.unshareQueue]) {
-      const res = await window.api.cloudUnshareNote(id);
+      const res = await window.api.cloudDeleteNote(me, id);
       if (res.ok) { state.unshareQueue = state.unshareQueue.filter((x) => x !== id); save(); }
     }
   } finally {
@@ -1012,7 +1112,8 @@ async function shareDialog(a) {
   const okBtn = h('button', { type: 'submit', class: 'primary' }, 'Condividi');
   const form = h('form', { method: 'dialog' },
     h('h2', null, 'Condividi appunto'),
-    h('p', { class: 'hint' }, `"${a.title}" sarà visibile, in sola lettura, ai colleghi scelti; le tue modifiche arrivano anche a loro.`),
+    h('p', { class: 'hint' }, `I colleghi scelti ricevono una notifica e possono leggere e modificare "${a.title}"; le modifiche le vedete tutti. `
+      + 'Se lo elimini ne tengono una copia; togliendo la spunta a qualcuno, invece, non lo vede più.'),
     h('div', { style: 'max-height:50vh; overflow:auto' }, people.map((u, i) => h('label', { class: 'tool-toggle' },
       boxes[i], h('span', null, u.name || u.email), u.name && h('span', { class: 'tool-note' }, u.email)))),
     h('div', { class: 'modal-actions' },
@@ -1035,9 +1136,11 @@ async function shareDialog(a) {
     if (!res.ok) {
       // Niente da riprovare: si torna alla condivisione di prima
       const cur = state.appunti.find((x) => x.id === a.id);
-      if (cur) { cur.sharedWith = before; if (!before.length) delete cur.sharedWith; delete cur.shareDirty; save(); }
+      if (cur && !res.conflict) { cur.sharedWith = before; if (!before.length) delete cur.sharedWith; delete cur.shareDirty; save(); }
       return toast(res.error);
     }
+    if (!res.note) applySharedMeta(a, null);
+    save();
     dlg.close();
     render();
     toast(list.length ? `Condiviso con ${list.map(personName).join(', ')}` : 'Appunto non più condiviso');
@@ -1978,7 +2081,8 @@ function onCloudUpdate(c) {
   if (!c.connected) { adminUsers = null; kitDraft = null; teamList = null; }
   if (synced) teamList = null; // nuovi colleghi o nomi cambiati
   if (page === 'settings' || roleChanged || (page === 'appunti' && (notesChanged || synced) && !appuntoFormFor)) render();
-  if (synced) retrySharedNotes();
+  else renderNav(); // contatore degli appunti condivisi nuovi
+  if (synced || notesChanged) syncSharedNotes();
 }
 
 // Dati arrivati da un altro dispositivo (o versione online più recente)
@@ -2390,7 +2494,7 @@ function normalizeState(d) {
     todos: Array.isArray(d.todos) ? d.todos : [],
     notes: typeof d.notes === 'string' ? d.notes : '',
     appunti: Array.isArray(d.appunti) ? d.appunti : [],
-    unshareQueue: Array.isArray(d.unshareQueue) ? d.unshareQueue : [], // appunti eliminati da togliere ancora dalla condivisione
+    unshareQueue: Array.isArray(d.unshareQueue) ? d.unshareQueue : [], // miei appunti condivisi eliminati, da segnalare ancora al server
     snippets: Array.isArray(d.snippets) ? d.snippets : [],
     ...Object.fromEntries(RECORD_KEYS.map((k) => [k, Array.isArray(d[k]) ? d[k] : []])),
     pixieset: Array.isArray(d.pixieset) ? d.pixieset : [],
@@ -2472,8 +2576,9 @@ async function boot() {
   cloudState = await window.api.cloudGet();
   window.api.onCloud(onCloudUpdate);
   window.api.onDataRemote(onDataRemote);
+  window.api.onOpenNotes(() => go('appunti'));
   render();
-  retrySharedNotes();
+  syncSharedNotes();
   window.api.onUpdate(showUpdate);
   window.api.onUpdateProgress(showUpdateProgress);
   window.api.checkUpdate().then(showUpdate);
