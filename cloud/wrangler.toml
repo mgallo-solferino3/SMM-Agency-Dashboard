@@ -2,6 +2,10 @@ name = "solferino3-dashboard-api"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 
+# Versione web: i file di public/ (creati da scripts/build-web.mjs); gli indirizzi /api e /auth li gestisce il Worker
+[assets]
+directory = "./public"
+
 [vars]
 # Gli admin possono invitare solo indirizzi di questo dominio
 ALLOWED_DOMAIN = "solferino3.it"

@@ -1,5 +1,7 @@
 // Backend di Solferino 3 Dashboard: ruoli utente/admin, sincronizzazione dei dati personali,
 // contenuti condivisi (kit di link) e appunti condivisi tra colleghi.
+// Serve anche la versione web (cartella public/, creata da scripts/build-web.mjs): per la versione web
+// fa da tramite verso il foglio Google di Pixieset e verso Asana, che dal browser non si raggiungono direttamente.
 //
 // Accesso con codice per dispositivo: un admin genera un codice monouso per un utente, che lo inserisce
 // nell'app e riceve un token di sessione (Authorization: Bearer). Un utente già collegato può generare
@@ -13,6 +15,7 @@ const MAX_DATA_BYTES = 1_500_000;
 const SHARED_KEYS = new Set(['tools']);
 const MAX_NOTE_BYTES = 500_000;
 const MAX_NOTE_RECIPIENTS = 50;
+const ASANA_API = 'https://app.asana.com/api/1.0';
 
 export default {
   async fetch(req, env) {
@@ -51,10 +54,20 @@ async function route(req, env) {
   if (p === '/api/me/code' && m === 'POST') return json(await createCode(env, me.email, me.email), 201);
 
   if (p === '/api/data' && m === 'GET') {
+    // ?rev=N: se online c'è ancora la revisione N non serve rimandare i dati
+    const known = Number(url.searchParams.get('rev')) || 0;
+    if (known) {
+      const r = await env.DB.prepare('SELECT rev FROM user_data WHERE email = ?').bind(me.email).first();
+      if (r && r.rev === known) return json({ rev: known, unchanged: true });
+    }
     const row = await env.DB.prepare('SELECT rev, data, updated_at FROM user_data WHERE email = ?').bind(me.email).first();
     return json(row ? { rev: row.rev, data: JSON.parse(row.data), updatedAt: row.updated_at } : { rev: 0, data: null, updatedAt: 0 });
   }
   if (p === '/api/data' && m === 'PUT') return putData(req, env, me);
+
+  if (p === '/api/sheet' && m === 'POST') return json(await fetchSheet(await readJson(req)));
+  const asanaPath = p.match(/^\/api\/asana(\/[A-Za-z0-9_/]+)$/);
+  if (asanaPath && (m === 'GET' || m === 'POST')) return asanaProxy(req, asanaPath[1], url.search);
 
   // Colleghi a cui condividere un appunto (nome ed email: niente ruoli o accessi)
   if (p === '/api/team' && m === 'GET') {
@@ -306,6 +319,64 @@ async function deleteNote(env, me, owner, id) {
   else if (owner === me.email) await env.DB.prepare('UPDATE shared_notes SET deleted = 1, updated_at = ? WHERE owner = ? AND id = ?').bind(Date.now(), owner, id).run();
   else await env.DB.prepare('UPDATE shared_notes SET shared_with = ? WHERE owner = ? AND id = ?').bind(JSON.stringify(recipients), owner, id).run();
   return json({ ok: true });
+}
+
+// ---------- Tramite per la versione web ----------
+
+// Foglio Google come CSV ("Chiunque abbia il link") o script Google pubblicato (foglio privato): come main.js
+function sheetCsvUrl(input) {
+  const u = new URL(String(input).trim());
+  if (u.hostname !== 'docs.google.com') throw new Error('Il link deve essere di un foglio Google o dello script Google (script.google.com/…/exec)');
+  const published = u.pathname.match(/^\/spreadsheets\/d\/e\/([\w-]+)/);
+  if (published) {
+    const gid = u.searchParams.get('gid');
+    return `https://docs.google.com/spreadsheets/d/e/${published[1]}/pub?output=csv${gid ? `&gid=${gid}` : ''}`;
+  }
+  const id = u.pathname.match(/^\/spreadsheets\/d\/([\w-]+)/);
+  if (!id) throw new Error('Non riconosco il link del foglio Google');
+  const gid = (u.hash.match(/gid=(\d+)/) || u.search.match(/gid=(\d+)/) || [])[1];
+  return `https://docs.google.com/spreadsheets/d/${id[1]}/export?format=csv${gid ? `&gid=${gid}` : ''}`;
+}
+
+const isAppsScriptUrl = (u) => u.hostname === 'script.google.com'
+  && /^\/(a\/macros\/[\w.-]+|macros)\/s\/[\w-]+\/exec$/.test(u.pathname);
+
+async function fetchSheet({ url, key } = {}) {
+  try {
+    const u = new URL(String(url).trim());
+    if (isAppsScriptUrl(u)) {
+      u.searchParams.set('key', String(key || ''));
+      const res = await fetch(u.toString());
+      if (!res.ok || !(res.headers.get('content-type') || '').includes('application/json')) {
+        return { error: 'Script non raggiungibile: in "Chi ha accesso" deve essere impostato "Chiunque"' };
+      }
+      const data = await res.json();
+      if (data.error) return { error: `Script Google: ${data.error}` };
+      if (Array.isArray(data.sheets)) {
+        return { sheets: data.sheets.filter((s) => Array.isArray(s.rows)).map((s) => ({ name: String(s.name || 'Foglio'), rows: s.rows })) };
+      }
+      return Array.isArray(data.rows) ? { sheets: [{ name: String(data.sheet || 'Foglio'), rows: data.rows }] } : { error: 'Risposta dello script non valida' };
+    }
+    const res = await fetch(sheetCsvUrl(url));
+    if (!res.ok || !(res.headers.get('content-type') || '').includes('text/csv')) {
+      return { error: 'Il foglio è privato: collegalo tramite lo script Google (indirizzo …/exec e chiave), vedi README' };
+    }
+    return { csv: await res.text() };
+  } catch (err) {
+    return { error: String((err && err.message) || err) };
+  }
+}
+
+// Asana con il token personale dell'utente (resta nel suo browser, qui passa e basta)
+async function asanaProxy(req, path, search) {
+  const token = req.headers.get('x-asana-token') || '';
+  if (!token) throw new HttpError(400, 'asana', 'Asana non è collegato');
+  const res = await fetch(ASANA_API + path + search, {
+    method: req.method,
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', ...(req.method === 'POST' ? { 'Content-Type': 'application/json' } : {}) },
+    body: req.method === 'POST' ? await req.text() : undefined,
+  });
+  return new Response(res.body, { status: res.status, headers: { 'content-type': 'application/json; charset=utf-8' } });
 }
 
 function isToolList(d) {

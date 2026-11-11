@@ -3,6 +3,16 @@
 Worker + D1 su `https://solferino3-dashboard-api.m-gallo.workers.dev`: ruoli utente/admin, sincronizzazione dei dati personali, kit di link condiviso.
 Non fa parte del build Electron.
 
+## Versione web
+
+Lo stesso Worker serve la versione web all'indirizzo principale: è l'interfaccia dell'app (`renderer/`) con
+`web/api.js` al posto di `preload.js` + `main.js`, preparata in `public/` da `npm run build:web` (lo fa già `npm run deploy`).
+Si accede con un codice per dispositivo come per un computer; i dati sono gli stessi dell'app e si sincronizzano
+(il browser controlla ogni minuto e quando si torna sulla scheda, l'app ogni 2 minuti e quando torna in primo piano).
+Mancano solo le funzioni che richiedono il computer: app installate, profili Chrome, anteprime dei siti, widget.
+Asana e foglio Google passano dal Worker (`/api/asana/…`, `/api/sheet`); il token Asana resta nel browser.
+Dopo modifiche a `renderer/` o `web/` va ripubblicato il Worker (`npm run deploy`).
+
 ## Accesso: codice per dispositivo
 
 Ogni computer si collega con un codice monouso (`XXXX-XXXX-XXXX`, valido 7 giorni), da inserire in Impostazioni → Account Solferino 3.

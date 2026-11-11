@@ -129,7 +129,9 @@ function hostOf(u) {
 }
 // Scorciatoie ad app installate: su Mac file:///Applications/Nome.app,
 // su Windows file:///C:/…/Nome.lnk (collegamento del menu Start) o .exe
-const IS_WIN = window.api.platform === 'win32';
+// Versione web (cloud/public): niente app installate, profili Chrome, anteprime dei siti e widget
+const IS_WEB = window.api.platform === 'web';
+const IS_WIN = window.api.platform === 'win32' || (IS_WEB && /Win/i.test(navigator.platform));
 const APP_KIND = IS_WIN ? 'App di Windows' : 'App del Mac';
 const MOD_KEY = IS_WIN ? 'Ctrl+K' : '⌘K';
 const isAppUrl = (u) => /^file:\/\/.*\.(app\/?|lnk|exe)$/i.test(u || '');
@@ -578,7 +580,7 @@ function toolFields(t = {}) {
     value: t.chromeProfile || '', options: [{ value: '', label: 'Quello già aperto (predefinito)' },
       ...chromeProfiles.map((p) => ({ value: p.dir, label: profileLabel(p) }))] };
   return [
-    { name: 'app', type: 'app', label: `${APP_KIND} (facoltativo)`, value: isAppUrl(t.url) ? appUrlToPath(t.url) : '' },
+    !IS_WEB && { name: 'app', type: 'app', label: `${APP_KIND} (facoltativo)`, value: isAppUrl(t.url) ? appUrlToPath(t.url) : '' },
     ...linkFields(t),
     profileField,
     { name: 'category', label: 'Categoria', value: t.category || '', placeholder: 'Es. Marketing' },
@@ -697,7 +699,7 @@ function addSite(tab) {
       const url = normalizeUrl(v.url);
       const item = { id: uid(), label: v.label || deriveLabel(url), url, thumb: null, capturedAt: null, tab };
       state.sites.push(item); save(); render();
-      captureSite(item);
+      if (!IS_WEB) captureSite(item);
     } });
 }
 function editSite(s) {
@@ -740,14 +742,14 @@ function siteCard(s) {
   const capturing = capturingIds.has(s.id);
   const thumbInner = s.thumb
     ? h('img', { src: s.thumb, alt: '' })
-    : h('div', { class: 'site-thumb-empty' }, capturing ? 'Cattura in corso…' : 'Nessuno screenshot');
+    : h('div', { class: 'site-thumb-empty' }, capturing ? 'Cattura in corso…' : IS_WEB ? hostOf(s.url) : 'Nessuno screenshot');
   return h('div', { class: 'site-card' },
     h('button', { class: 'site-thumb', onclick: () => window.api.openExternal(normalizeUrl(s.url)), title: s.url }, thumbInner),
     h('div', { class: 'site-meta' },
       h('div', { class: 'site-name' }, s.label),
       h('div', { class: 'site-host' }, hostOf(s.url))),
     h('div', { class: 'site-actions' },
-      h('button', { class: 'ghost small', disabled: capturing, onclick: () => captureSite(s) }, s.thumb ? 'Aggiorna' : 'Cattura'),
+      !IS_WEB && h('button', { class: 'ghost small', disabled: capturing, onclick: () => captureSite(s) }, s.thumb ? 'Aggiorna' : 'Cattura'),
       editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => editSite(s) }, icon('pen')),
       editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => deleteSite(s) }, icon('xmark'))));
 }
@@ -756,7 +758,7 @@ function renderSites(view, tab) {
   const missing = sites.filter((s) => !s.thumb).length;
   view.append(h('div', { class: 'row', style: 'margin-bottom:6px' },
     h('button', { class: 'primary', onclick: () => addSite(tab) }, '+ Nuovo sito'),
-    missing > 0 && h('button', { class: 'ghost small', onclick: () => captureAllMissing(tab) }, `Cattura mancanti (${missing})`)));
+    missing > 0 && !IS_WEB && h('button', { class: 'ghost small', onclick: () => captureAllMissing(tab) }, `Cattura mancanti (${missing})`)));
   if (!sites.length) view.append(h('div', { class: 'empty' }, 'Nessun sito salvato.'));
   view.append(h('div', { class: 'site-grid' }, sites.map((s) => siteCard(s))));
 }
@@ -2065,6 +2067,7 @@ function renderAsana(view) {
 
 // ---------- Account Solferino 3 (codice per dispositivo, sincronizzazione, amministrazione) ----------
 let cloudState = { connected: false, user: null, sharedTools: null };
+const WEB_URL = 'https://solferino3-dashboard-api.m-gallo.workers.dev/'; // versione web (cloud/public), sincronizzata con l'app
 let cloudRedeeming = false;
 let adminUsers = null; // null = da caricare
 let adminError = '';
@@ -2174,7 +2177,8 @@ function renderAccount(view) {
     u.name && h('div', { class: 'hint', style: 'margin-top:2px' }, u.email),
     h('div', { class: 'row', style: 'margin-top:10px; align-items:center; flex-wrap:wrap' },
       h('button', { class: 'ghost', disabled: c.syncing, onclick: () => window.api.cloudSync() }, icon('rotate'), ' Sincronizza'),
-      h('button', { class: 'ghost', onclick: () => codeAction(window.api.cloudMyCode(), 'Inseriscilo sull\'altro computer per ritrovare lì i tuoi dati.') }, 'Collega un altro computer'),
+      h('button', { class: 'ghost', onclick: () => codeAction(window.api.cloudMyCode(), 'Inseriscilo sull\'altro computer o nella versione web per ritrovare lì i tuoi dati.') }, 'Collega un altro computer'),
+      !IS_WEB && h('button', { class: 'ghost', title: WEB_URL, onclick: () => window.api.openExternal(WEB_URL) }, 'Versione web'),
       h('button', { class: 'ghost', onclick: cloudLogout }, 'Scollega'),
       status && h('span', { class: 'sheet-status' + (c.error ? ' error' : '') }, status))));
   if (u.role === 'admin') renderAdmin(view);
@@ -2438,7 +2442,7 @@ function renderSettings(view) {
         h('img', { src: s.iconData, alt: '' })),
       h('button', { class: 'ghost small', onclick: () => fileInput.click() }, 'Carica immagine…'),
       fileInput),
-    h('div', { class: 'hint' }, IS_WIN
+    h('div', { class: 'hint' }, IS_WEB ? 'L\'icona cambia nella scheda del browser.' : IS_WIN
       ? 'L\'icona cambia nella barra delle applicazioni e nel widget. Il collegamento sul Desktop e nel menu Start mantiene quella predefinita.'
       : 'L\'icona cambia nel Dock e nel widget mentre l\'app è aperta. Nel Finder e nel Launchpad resta quella predefinita.'));
 }

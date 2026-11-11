@@ -1,0 +1,7 @@
+/* Solo versione web: niente barra del titolo da trascinare, schermata di accesso */
+.drag-region { display: none; }
+.login { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--bg); }
+.login-card { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 12px; padding: 28px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.login-card .brand { margin-bottom: 6px; }
+.login-card p { margin: 0; }
+.login-code { font-family: ui-monospace, Menlo, monospace; letter-spacing: .06em; text-align: center; font-size: 18px; }

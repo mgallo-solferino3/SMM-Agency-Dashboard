@@ -1047,10 +1047,9 @@ ipcMain.handle('asana:connect', async (_e, token) => {
 // Token e stato della sincronizzazione stanno in cloud.json, fuori dai dati e quindi dai backup esportati.
 const CLOUD_API = (process.env.S3_CLOUD_URL || 'https://solferino3-dashboard-api.m-gallo.workers.dev').replace(/\/+$/, '');
 const CLOUD_FILE = () => path.join(app.getPath('userData'), 'cloud.json');
-const CLOUD_POLL_MS = 5 * 60 * 1000;
+const CLOUD_POLL_MS = 2 * 60 * 1000; // leggero: i dati si scaricano solo se cambiati (web o altro computer)
 const CLOUD_FOCUS_MIN_GAP_MS = 60 * 1000;
 const CLOUD_PUSH_DELAY_MS = 3000;
-const CLOUD_NOTES_POLL_MS = 2 * 60 * 1000; // appunti condivisi: si controllano più spesso, per avvisare dei nuovi
 const NOTES_NOTIFY_MAX = 3;
 const CLOUD_EMPTY = { token: '', user: null, rev: 0, dirty: false, syncedAt: 0, error: '', sharedTools: null,
   sharedNotes: [], knownNotes: null, unseenNotes: [] }; // knownNotes null = primo controllo: niente avvisi
@@ -1166,7 +1165,7 @@ async function syncCloud() {
     const shared = await cloudFetch('GET', '/api/shared/tools');
     cloud.sharedTools = Array.isArray(shared.data) ? shared.data : null;
     await fetchSharedNotes();
-    const remote = await cloudFetch('GET', '/api/data');
+    const remote = await cloudFetch('GET', `/api/data${cloud.rev ? `?rev=${cloud.rev}` : ''}`);
     if (remote.rev && remote.rev !== cloud.rev) applyRemoteData(remote.data, remote.rev, { conflict: cloud.dirty || !cloud.rev });
     else if (!remote.rev) {
       cloud.rev = 0; // nulla online (primo accesso): si caricano i dati di questo computer
@@ -1217,15 +1216,6 @@ function notifyNotes(fresh) {
     });
     n.show();
   }
-}
-
-async function syncNotes() {
-  if (!cloud.token || cloudSyncing || !cloud.user) return;
-  try {
-    await fetchSharedNotes();
-    saveCloud();
-    sendCloud();
-  } catch (_) {} // la sincronizzazione completa riporta gli errori
 }
 
 // Salva un appunto condiviso (proprietario o destinatario) e aggiorna la cache; in caso di conflitto
@@ -1366,7 +1356,6 @@ app.whenReady().then(() => {
   loadCloud();
   syncCloud();
   setInterval(syncCloud, CLOUD_POLL_MS);
-  setInterval(syncNotes, CLOUD_NOTES_POLL_MS);
   powerMonitor.on('resume', syncCloudIfStale);
   loadAsana();
   syncAsana();

@@ -2,11 +2,12 @@
   "name": "solferino3-dashboard-api",
   "private": true,
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "npm run build:web && wrangler dev",
+    "deploy": "npm run build:web && wrangler deploy",
     "db:init": "wrangler d1 execute solferino3-dashboard --remote --file=schema.sql",
     "db:init:local": "wrangler d1 execute solferino3-dashboard --local --file=schema.sql",
-    "admin-code": "node scripts/admin-code.mjs"
+    "admin-code": "node scripts/admin-code.mjs",
+    "build:web": "node scripts/build-web.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

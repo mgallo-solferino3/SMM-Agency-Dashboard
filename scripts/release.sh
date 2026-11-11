@@ -1,6 +1,6 @@
 #!/bin/bash
 # Pubblica una nuova versione: aumenta la versione, crea .dmg ed .exe,
-# installa l'app sul Mac, fa commit + tag + push e crea la GitHub Release.
+# installa l'app sul Mac, fa commit + tag + push, crea la GitHub Release e aggiorna la versione web.
 # Uso: npm run release [-- patch|minor|major]   (default: patch)
 set -euo pipefail
 
@@ -74,3 +74,7 @@ gh release create "$TAG" --target main --title "$NAME $VERSION" \
   "$ASSETS"/*.dmg "$ASSETS"/*.exe "$ASSETS/latest.json"
 
 echo "✓ Pubblicata: $(gh release view "$TAG" --json url -q .url)"
+
+# Versione web (servita dal Worker Cloudflare): stessa interfaccia della release appena pubblicata
+echo "→ Aggiorno la versione web"
+(cd cloud && npm run deploy --silent) || echo "⚠ Versione web non aggiornata: esegui 'cd cloud && npm run deploy'"
