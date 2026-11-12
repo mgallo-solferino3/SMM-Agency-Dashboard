@@ -552,6 +552,12 @@
     },
     listApps: async () => [],
     appIcon: none,
+    // Allegati dei progetti: solo nell'app desktop (sono file sul computer)
+    pickAttachments: async () => [],
+    addAttachments: async () => [],
+    openAttachment: async () => 'Gli allegati si aprono dall\'app desktop',
+    revealAttachment: none,
+    deleteAttachment: none,
     checkUpdate: none, // la versione web si aggiorna da sola ricaricando la pagina
     onUpdate: () => {},
     installUpdate: async () => ({ ok: false, error: 'Ricarica la pagina' }),

@@ -392,3 +392,16 @@ dialog::backdrop { background: rgba(2, 24, 43, .6); }
 
 /* Righe diagonali leggere sullo sfondo, come nella home del sito */
 .main { background-image: repeating-linear-gradient(105deg, transparent 0 140px, color-mix(in srgb, var(--accent) 4%, transparent) 140px 141px); }
+
+/* Coriandoli della To-do: sopra tutto, non intercettano i clic */
+.confetti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 9999; }
+
+/* Scheda progetto */
+.detail-title { margin: 0; font-size: 20px; }
+.record-main.clickable { cursor: pointer; }
+.record-main.clickable:hover .record-title { color: var(--accent); }
+.attachments { padding: 4px 14px; transition: border-color .15s, background .15s; }
+.attachments.empty-drop { padding: 16px 18px; border-style: dashed; }
+.attachments.dragging { border-color: var(--accent); background: var(--accent-soft); }
+.attachments .record:last-child { border-bottom: 0; }
+.attachment-icon { flex: none; width: 28px; text-align: center; color: var(--muted); }

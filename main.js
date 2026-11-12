@@ -4,6 +4,7 @@ const fs = require('fs');
 const { pathToFileURL, fileURLToPath } = require('url');
 const { execFile, spawn } = require('child_process');
 const os = require('os');
+const crypto = require('crypto');
 
 const IS_MAC = process.platform === 'darwin';
 const IS_WIN = process.platform === 'win32';
@@ -478,6 +479,41 @@ ipcMain.handle('data:export', async (_e, data) => {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
   return true;
 });
+
+// ---- Allegati dei progetti: file copiati nella cartella dati dell'app (non finiscono nei backup .json) ----
+const ATTACHMENTS_DIR = () => path.join(app.getPath('userData'), 'allegati');
+
+// Nome del file salvato (id-nome originale): solo dentro la cartella degli allegati
+function attachmentPath(file) {
+  const p = path.join(ATTACHMENTS_DIR(), path.basename(String(file)));
+  if (!file || p !== path.join(ATTACHMENTS_DIR(), String(file))) throw new Error('Allegato non valido');
+  return p;
+}
+
+function copyAttachments(paths) {
+  const dir = ATTACHMENTS_DIR();
+  fs.mkdirSync(dir, { recursive: true });
+  return paths.filter((src) => fs.statSync(src, { throwIfNoEntry: false })?.isFile()).map((src) => {
+    const id = crypto.randomUUID().slice(0, 8);
+    const name = path.basename(src);
+    const file = `${id}-${name.replace(/[\\/:*?"<>|]/g, '_')}`;
+    fs.copyFileSync(src, path.join(dir, file));
+    return { id, name, file, size: fs.statSync(path.join(dir, file)).size, addedAt: Date.now() };
+  });
+}
+
+ipcMain.handle('attachments:pick', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'] });
+  return canceled ? [] : copyAttachments(filePaths);
+});
+ipcMain.handle('attachments:add', (_e, paths) => copyAttachments((Array.isArray(paths) ? paths : []).map(String).filter(Boolean)));
+ipcMain.handle('attachments:open', async (_e, file) => {
+  const p = attachmentPath(file);
+  if (!fs.existsSync(p)) return 'File non presente su questo computer';
+  return shell.openPath(p); // '' se aperto, altrimenti il messaggio d'errore
+});
+ipcMain.handle('attachments:reveal', (_e, file) => shell.showItemInFolder(attachmentPath(file)));
+ipcMain.handle('attachments:delete', (_e, file) => fs.rmSync(attachmentPath(file), { force: true }));
 
 // ---- Screenshot "siti belli" ----
 const THUMBS_DIR = () => path.join(app.getPath('userData'), 'thumbnails');

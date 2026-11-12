@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   platform: process.platform,
@@ -13,6 +13,12 @@ contextBridge.exposeInMainWorld('api', {
   fetchSheet: (url, key) => ipcRenderer.invoke('sheet:fetch', { url, key }),
   listApps: () => ipcRenderer.invoke('apps:list'),
   appIcon: (appPath) => ipcRenderer.invoke('apps:icon', appPath),
+  pickAttachments: () => ipcRenderer.invoke('attachments:pick'),
+  // File trascinati nella finestra: il percorso lo dà solo il preload
+  addAttachments: (files) => ipcRenderer.invoke('attachments:add', [...files].map((f) => webUtils.getPathForFile(f))),
+  openAttachment: (file) => ipcRenderer.invoke('attachments:open', file),
+  revealAttachment: (file) => ipcRenderer.invoke('attachments:reveal', file),
+  deleteAttachment: (file) => ipcRenderer.invoke('attachments:delete', file),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   onUpdate: (cb) => ipcRenderer.on('update:available', (_e, update) => cb(update)),
   installUpdate: () => ipcRenderer.invoke('update:install'),

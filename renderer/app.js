@@ -448,6 +448,7 @@ function go(id) {
   editing = false;
   if (id !== 'home') query = '';
   appuntoFormFor = null;
+  openRecord = null;
   render();
 }
 
@@ -458,7 +459,8 @@ function render() {
   renderNav();
   $('#page-title').textContent = page === 'home' ? greeting() : meta.label;
   const btn = $('#btn-edit');
-  btn.hidden = !EDITABLE.has(page) && !RECORD_TYPES[page];
+  // Nei Progetti modifica ed eliminazione stanno nella scheda di ogni progetto
+  btn.hidden = (!EDITABLE.has(page) && !RECORD_TYPES[page]) || !!RECORD_TYPES[page]?.detail;
   btn.classList.toggle('active', editing);
   btn.textContent = editing ? 'Fine' : 'Modifica';
   const view = $('#view');
@@ -546,7 +548,7 @@ function renderHomeBody() {
     const next = upcomingRecords(datedPages);
     body.append(h('div', { class: 'section-title' }, 'In programma'));
     body.append(next.length
-      ? h('div', { class: 'card records' }, next.map(({ key, r }) => recordRow(key, r, { onOpen: () => go(key), showPage: true })))
+      ? h('div', { class: 'card records' }, next.map(({ key, r }) => recordRow(key, r, { onOpen: () => (RECORD_TYPES[key].detail ? openRecordDetail(key, r) : go(key)), showPage: true })))
       : h('div', { class: 'empty' }, 'Niente in programma.'));
   }
 
@@ -764,9 +766,55 @@ function renderSites(view, tab) {
 }
 
 // --- TODO
+// Coriandoli quando si completa un'attività (richiesta di Erika), partono dalla casella spuntata
+const CONFETTI_COLORS = ['#e8384f', '#fd9a00', '#eec300', '#37c5ab', '#4186e0', '#aa62e3', '#ea4e9d'];
+function confetti(from) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const r = from.getBoundingClientRect();
+  const x0 = r.left + r.width / 2, y0 = r.top + r.height / 2;
+  const canvas = h('canvas', { class: 'confetti' });
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = innerWidth * dpr;
+  canvas.height = innerHeight * dpr;
+  document.body.append(canvas);
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const pieces = Array.from({ length: 90 }, () => {
+    const angle = -Math.PI / 2 + (Math.random() - 0.5) * 1.9;
+    const speed = 6 + Math.random() * 9;
+    return { x: x0, y: y0, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, w: 6 + Math.random() * 6, hgt: 4 + Math.random() * 5,
+      rot: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.4, color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)] };
+  });
+  const start = performance.now();
+  const DURATION = 2200;
+  const frame = (now) => {
+    const t = now - start;
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    ctx.globalAlpha = Math.max(0, 1 - Math.max(0, t - DURATION * 0.6) / (DURATION * 0.4)); // dissolvenza finale
+    for (const p of pieces) {
+      p.vx *= 0.985; p.vy = p.vy * 0.985 + 0.32; // attrito e gravità
+      p.x += p.vx; p.y += p.vy; p.rot += p.vr;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.scale(1, Math.cos(p.rot * 2)); // effetto "giravolta"
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.w / 2, -p.hgt / 2, p.w, p.hgt);
+      ctx.restore();
+    }
+    if (t < DURATION) requestAnimationFrame(frame);
+    else canvas.remove();
+  };
+  requestAnimationFrame(frame);
+}
+
 function todoRow(t, rerender) {
   return h('div', { class: 'todo' + (t.done ? ' done' : '') },
-    h('input', { type: 'checkbox', checked: t.done, onchange: (e) => { t.done = e.target.checked; save(); rerender(); } }),
+    h('input', { type: 'checkbox', checked: t.done, onchange: (e) => {
+      t.done = e.target.checked;
+      if (t.done) confetti(e.target);
+      save(); rerender();
+    } }),
     h('span', { class: 't' }, t.text),
     h('button', { class: 'icon', title: 'Elimina', onclick: () => { state.todos = state.todos.filter((x) => x.id !== t.id); save(); rerender(); } }, icon('xmark')));
 }
@@ -1437,13 +1485,16 @@ const RECORD_TYPES = {
   progetti: {
     singular: 'progetto', addLabel: 'Nuovo progetto', empty: 'Nessun progetto.',
     titleField: 'name', dateField: 'deadline', groupBy: 'status', upcoming: true,
-    meta: ['client'],
+    meta: ['client'], urlField: 'link', summaryField: 'description',
+    detail: true, // clic sul progetto: scheda con link, descrizione, dettagli e allegati
     fields: [
       { name: 'name', label: 'Nome del progetto', required: true, placeholder: 'Es. Restyling sito' },
       { name: 'client', label: 'Cliente' },
       { name: 'deadline', label: 'Consegna', type: 'date' },
       { name: 'status', label: 'Stato', type: 'status' },
-      { name: 'notes', label: 'Note', type: 'textarea' },
+      { name: 'link', label: 'Link', type: 'url', placeholder: 'https://… (cartella Drive, sito, brief…)' },
+      { name: 'description', label: 'Descrizione', type: 'textarea', rows: 3, placeholder: 'In breve: obiettivo, servizi, periodo…' },
+      { name: 'notes', label: 'Dettagli', type: 'textarea', rows: 8, placeholder: 'Referenti, accessi, tono di voce, consegne…' }, // "notes": i progetti già salvati restano com'erano
     ],
     statuses: [st('Da iniziare', 'neutral'), st('In corso', 'progress'), st('In revisione', 'info'), st('Completato', 'done')],
   },
@@ -1509,6 +1560,7 @@ function editRecord(key, r) {
 function deleteRecord(key, r) {
   const type = RECORD_TYPES[key];
   confirmBox(`Eliminare "${r[type.titleField]}"?`, () => {
+    (r.attachments || []).forEach((f) => window.api.deleteAttachment(f.file));
     state[key] = state[key].filter((x) => x.id !== r.id); save(); render();
   });
 }
@@ -1534,13 +1586,14 @@ function recordRow(key, r, { onOpen, showPage } = {}) {
   const meta = [showPage && PROFILE_PAGES[key].label, ...(type.meta || []).map((n) => r[n])].filter(Boolean);
   const amount = type.amountField && formatMoney(r[type.amountField]);
   const url = type.urlField && r[type.urlField];
+  const summary = type.summaryField ? r[type.summaryField] : !onOpen && r.notes;
   return h('div', { class: 'record' + (isClosed(status) ? ' closed' : '') + (onOpen ? ' clickable' : ''),
     onclick: onOpen && ((e) => { if (!e.target.closest('button')) onOpen(); }) },
     type.dateField && dateBlock(date, overdue),
     h('div', { class: 'record-main' },
       h('div', { class: 'record-title', style: type.titleStyle ? type.titleStyle(r) : null }, r[type.titleField]),
       meta.length > 0 && h('div', { class: 'record-meta' }, meta.join(' · ')),
-      !onOpen && r.notes && h('div', { class: 'record-notes' }, r.notes)),
+      summary && h('div', { class: 'record-notes' }, summary)),
     amount && h('div', { class: 'record-amount' }, amount),
     url && h('button', { class: 'ghost small', onclick: () => window.api.openExternal(url) }, 'Apri'),
     status && h('button', { class: `status tone-${status.tone}`, title: 'Clic per passare allo stato successivo',
@@ -1584,6 +1637,9 @@ const openPastGroups = new Set(); // sezioni con "Mesi precedenti" aperto
 
 function renderRecords(view, key) {
   const type = RECORD_TYPES[key];
+  const opened = type.detail && openRecord?.key === key && state[key].find((r) => r.id === openRecord.id);
+  if (opened) return renderRecordDetail(view, key, opened);
+  openRecord = null;
   view.append(h('div', { class: 'row', style: 'margin-bottom:6px' },
     h('button', { class: 'primary', onclick: () => editRecord(key) }, `+ ${type.addLabel}`)));
   if (!state[key].length) { view.append(h('div', { class: 'empty' }, type.empty)); return; }
@@ -1596,8 +1652,98 @@ function renderRecords(view, key) {
         if (open) openPastGroups.delete(key); else openPastGroups.add(key);
         render();
       } }, open ? 'Nascondi' : 'Mostra')));
-    if (open) view.append(h('div', { class: 'card records' }, g.items.map((r) => recordRow(key, r))));
+    if (open) view.append(h('div', { class: 'card records' }, g.items.map((r) => recordRow(key, r, { onOpen: type.detail && (() => openRecordDetail(key, r)) }))));
   }
+}
+
+// --- Scheda di un record (Progetti): campi modificabili sul posto e allegati
+let openRecord = null; // { key, id } del record aperto
+
+function openRecordDetail(key, r) {
+  if (page !== key) go(key);
+  openRecord = { key, id: r.id };
+  render();
+  $('#view').scrollTop = 0;
+}
+
+const formatSize = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+
+async function addAttachments(r, files) {
+  const added = await (files ? window.api.addAttachments(files) : window.api.pickAttachments());
+  if (!added?.length) return;
+  r.attachments = [...(r.attachments || []), ...added];
+  save();
+  render();
+  toast(added.length === 1 ? 'Allegato aggiunto' : `${added.length} allegati aggiunti`);
+}
+
+function attachmentRow(r, f) {
+  const open = async () => {
+    const err = await window.api.openAttachment(f.file);
+    if (err) toast(err);
+  };
+  return h('div', { class: 'record' },
+    h('div', { class: 'attachment-icon' }, icon('paperclip')),
+    h('div', { class: 'record-main clickable', title: 'Apri', onclick: open },
+      h('div', { class: 'record-title' }, f.name),
+      h('div', { class: 'record-meta' }, [formatSize(f.size || 0), f.addedAt && new Date(f.addedAt).toLocaleDateString('it-IT')].filter(Boolean).join(' · '))),
+    h('button', { class: 'ghost small', onclick: open }, 'Apri'),
+    h('button', { class: 'icon', title: IS_WIN ? 'Mostra in Esplora file' : 'Mostra nel Finder', onclick: () => window.api.revealAttachment(f.file) }, icon('folder-open')),
+    h('button', { class: 'icon', title: 'Elimina', onclick: () => confirmBox(`Eliminare l'allegato "${f.name}"?`, () => {
+      r.attachments = r.attachments.filter((x) => x.id !== f.id);
+      window.api.deleteAttachment(f.file);
+      save();
+      render();
+    }) }, icon('xmark')));
+}
+
+function renderRecordDetail(view, key, r) {
+  const type = RECORD_TYPES[key];
+  const status = statusOf(type, r);
+  const files = r.attachments || [];
+  const meta = [r.client, r.deadline && `Consegna ${formatDate(r.deadline)}`].filter(Boolean);
+  // Si salvano mentre scrivi, senza ridisegnare la pagina (il cursore resta dov'è)
+  const field = (name, attrs) => h(attrs.rows ? 'textarea' : 'input', { ...attrs, value: r[name] || '',
+    placeholder: type.fields.find((f) => f.name === name).placeholder, oninput: (e) => { r[name] = e.target.value; save(); } });
+  const linkInput = field('link', { type: 'text' });
+  linkInput.addEventListener('change', () => { r.link = r.link.trim() && normalizeUrl(r.link.trim()); linkInput.value = r.link; save(); });
+
+  const drop = h('div', { class: 'card attachments' + (files.length ? '' : ' empty-drop') },
+    files.length ? files.map((f) => attachmentRow(r, f))
+      : h('div', { class: 'empty' }, IS_WEB ? 'Nessun allegato.' : 'Nessun allegato. Trascina qui i file o usa "Aggiungi file".'));
+  if (!IS_WEB) {
+    drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('dragging'); });
+    drop.addEventListener('dragleave', (e) => { if (!drop.contains(e.relatedTarget)) drop.classList.remove('dragging'); });
+    drop.addEventListener('drop', (e) => {
+      e.preventDefault();
+      drop.classList.remove('dragging');
+      if (e.dataTransfer.files.length) addAttachments(r, e.dataTransfer.files);
+    });
+  }
+
+  view.append(
+    h('div', { class: 'row', style: 'margin-bottom:6px; align-items:center; flex-wrap:wrap; gap:10px' },
+      h('button', { class: 'ghost', onclick: () => { openRecord = null; render(); } }, `← ${PROFILE_PAGES[key].label}`),
+      h('h2', { class: 'detail-title' }, r[type.titleField]),
+      status && h('button', { class: `status tone-${status.tone}`, title: 'Clic per passare allo stato successivo',
+        onclick: () => cycleStatus(type, r) }, status.label),
+      h('div', { class: 'row', style: 'margin-left:auto; gap:6px' },
+        h('button', { class: 'ghost', onclick: () => editRecord(key, r) }, icon('pen'), ' Modifica'),
+        h('button', { class: 'ghost', onclick: () => deleteRecord(key, r) }, 'Elimina'))),
+    meta.length > 0 && h('div', { class: 'record-meta', style: 'margin-bottom:14px' }, meta.join(' · ')),
+    h('div', { class: 'card' },
+      h('div', { class: 'field' }, h('span', null, 'Link'),
+        h('div', { class: 'row', style: 'gap:8px' }, linkInput,
+          h('button', { class: 'ghost', onclick: () => r.link && window.api.openExternal(normalizeUrl(r.link)) }, 'Apri'))),
+      h('label', { class: 'field' }, h('span', null, 'Descrizione'), field('description', { rows: 3 })),
+      h('label', { class: 'field' }, h('span', null, 'Dettagli'), field('notes', { rows: 12 }))),
+    h('div', { class: 'row', style: 'margin:22px 0 10px; justify-content:space-between; align-items:baseline' },
+      h('div', { class: 'section-title', style: 'margin:0' }, `Allegati (${files.length})`),
+      !IS_WEB && h('button', { class: 'primary small', onclick: () => addAttachments(r) }, '+ Aggiungi file')),
+    drop,
+    h('div', { class: 'hint' }, IS_WEB
+      ? 'Gli allegati si aggiungono e si aprono dall\'app desktop.'
+      : 'I file vengono copiati nella cartella dell\'app e restano su questo computer: non sono inclusi nel backup .json.'));
 }
 
 function upcomingRecords(keys, limit = 6) {
