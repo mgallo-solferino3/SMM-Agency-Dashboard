@@ -555,7 +555,6 @@
     checkUpdate: none, // la versione web si aggiorna da sola ricaricando la pagina
     onUpdate: () => {},
     installUpdate: async () => ({ ok: false, error: 'Ricarica la pagina' }),
-    onUpdateProgress: () => {},
     setAppearance: async (a = {}) => {
       theme = a.theme || 'system';
       applyTheme();

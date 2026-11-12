@@ -2448,44 +2448,42 @@ function renderSettings(view) {
 }
 
 // ---------- Aggiornamenti ----------
-// I controlli periodici li fa il processo principale, che avvisa con 'update:available'
-let updateInstalling = false;
-let shownUpdateVersion = null;
+// I controlli periodici e il download li fa il processo principale, che manda lo stato con 'update:available'
+let updateRestarting = false;
 
 function showUpdate(u) {
   const box = $('#update');
-  if (updateInstalling) return; // i controlli periodici non devono azzerare l'avanzamento
-  if (!u) { box.hidden = true; shownUpdateVersion = null; return; }
-  if (u.version === shownUpdateVersion) return;
-  shownUpdateVersion = u.version;
-  const text = h('div', { class: 'update-text' }, 'Si installa da sola e l\'app si riapre: i tuoi dati restano.');
-  const installBtn = h('button', { class: 'primary small', onclick: async () => {
-    updateInstalling = true;
-    installBtn.disabled = true;
-    text.textContent = 'Download in corso…';
-    await window.api.save(state); // salva subito le modifiche in sospeso: l'app sta per chiudersi
-    const res = await window.api.installUpdate();
-    if (res.ok) { text.textContent = 'Riavvio in corso…'; return; }
-    updateInstalling = false;
-    installBtn.disabled = false;
-    text.replaceChildren(`Installazione automatica non riuscita (${res.error}). `,
-      h('a', { href: '#', onclick: (e) => { e.preventDefault(); window.api.openExternal(u.downloadUrl); } }, 'Scarica a mano'));
-  } }, 'Installa e riavvia');
-  box.replaceChildren(
-    h('div', { class: 'update-title' }, `Nuova versione ${u.version}`),
-    text,
-    h('div', { class: 'update-actions' },
-      installBtn,
-      h('button', { class: 'ghost small', onclick: () => window.api.openExternal(u.notesUrl) }, 'Novità')),
-  );
+  if (updateRestarting) return;
+  if (!u) { box.hidden = true; return; }
+  const quitHint = IS_WIN ? 'quando chiudi l\'app' : 'quando esci dall\'app (⌘Q)';
+  const text = h('div', { class: 'update-text' });
+  const actions = h('div', { class: 'update-actions' });
+  const manualLink = () => h('a', { href: '#', onclick: (e) => { e.preventDefault(); window.api.openExternal(u.downloadUrl); } }, 'Scarica a mano');
+  if (u.state === 'manual') {
+    text.append('Scarica il nuovo installer e installalo.');
+    actions.append(h('button', { class: 'primary small', onclick: () => window.api.openExternal(u.downloadUrl) }, 'Scarica'));
+  } else if (u.state === 'error') {
+    text.append(`Download non riuscito (${u.error}), riprovo tra qualche minuto. `, manualLink());
+  } else {
+    text.append(u.state === 'ready'
+      ? `Pronta: si installa da sola ${quitHint}. I tuoi dati restano.`
+      : `Download in background${u.progress >= 0 ? ` (${u.progress}%)` : ''}: poi si installa da sola ${quitHint}.`);
+    const restartBtn = h('button', { class: 'primary small', onclick: async () => {
+      updateRestarting = true;
+      restartBtn.disabled = true;
+      text.textContent = u.state === 'ready' ? 'Riavvio in corso…' : 'Finisco il download e riavvio…';
+      await window.api.save(state); // salva subito le modifiche in sospeso: l'app sta per chiudersi
+      const res = await window.api.installUpdate();
+      if (res.ok) return;
+      updateRestarting = false;
+      restartBtn.disabled = false;
+      text.replaceChildren(`Installazione non riuscita (${res.error}). `, manualLink());
+    } }, 'Riavvia ora');
+    actions.append(restartBtn);
+  }
+  actions.append(h('button', { class: 'ghost small', onclick: () => window.api.openExternal(u.notesUrl) }, 'Novità'));
+  box.replaceChildren(h('div', { class: 'update-title' }, `Nuova versione ${u.version}`), text, actions);
   box.hidden = false;
-  updateStatusEl = text;
-}
-
-let updateStatusEl = null;
-function showUpdateProgress(p) {
-  if (!updateInstalling || !updateStatusEl) return;
-  updateStatusEl.textContent = p === 'install' ? 'Installazione…' : p >= 0 ? `Download… ${p}%` : 'Download in corso…';
 }
 
 // ---------- Boot ----------
@@ -2584,7 +2582,6 @@ async function boot() {
   render();
   syncSharedNotes();
   window.api.onUpdate(showUpdate);
-  window.api.onUpdateProgress(showUpdateProgress);
   window.api.checkUpdate().then(showUpdate);
 }
 boot();

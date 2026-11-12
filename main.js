@@ -611,6 +611,7 @@ const UPDATE_FOCUS_MIN_GAP_MS = 60 * 1000;
 let latestUpdate = null;
 let lastUpdateCheck = 0;
 let notifiedVersion = null;
+let updateNotification = null; // tenuta in vita: se viene raccolta dal garbage collector il clic non arriva più
 
 // { version, mac, win }: nomi degli installer dell'ultima release
 async function fetchLatestManifest() {
@@ -630,19 +631,40 @@ function updateFromManifest(m) {
   return { version, downloadUrl: `${tag}/${asset}`, notesUrl: `${RELEASES_URL}/tag/v${version}` };
 }
 
-function notifyUpdate(update) {
-  if (notifiedVersion === update.version || !Notification.isSupported()) return;
-  notifiedVersion = update.version;
+function notifyUpdate(update, ready) {
+  const key = `${update.version}:${ready}`;
+  if (notifiedVersion === key || !Notification.isSupported()) return;
+  notifiedVersion = key;
   const n = new Notification({
-    title: `${app.getName()} ${update.version} disponibile`,
-    body: 'Clicca per aprire l\'app e scaricare la nuova versione.',
+    title: ready ? 'Riavvia app per concludere aggiornamento' : `${app.getName()} ${update.version} disponibile`,
+    body: ready
+      ? `${app.getName()} ${update.version} è pronta. ${IS_MAC ? 'Si installa anche quando esci dall\'app (⌘Q).' : 'Si installa anche quando chiudi l\'app.'}`
+      : 'Clicca per aprire l\'app e scaricare la nuova versione.',
     icon: customIcon ? nativeImage.createFromDataURL(customIcon) : ICON_PATH,
+    // Su Mac la notifica ha anche il pulsante per riavviare subito (su Windows Electron non supporta i pulsanti)
+    actions: ready && IS_MAC ? [{ type: 'button', text: 'Riavvia' }] : [],
   });
   n.on('click', () => {
     hideWidget();
     restoreMainWindow();
   });
+  n.on('action', () => {
+    if (launchPreparedUpdate(true)) quitForUpdate();
+  });
   n.show();
+  updateNotification = n;
+}
+
+// Lo stato mostrato nel banner: download in corso, pronta (si installa alla chiusura) o errore
+function updateStatus() {
+  if (!latestUpdate) return null;
+  const p = preparedUpdate && preparedUpdate.version === latestUpdate.version ? preparedUpdate : null;
+  const state = !canAutoUpdate() ? 'manual' : p ? (p.ready ? 'ready' : 'downloading') : updateError ? 'error' : 'downloading';
+  return { ...latestUpdate, state, progress: p ? p.progress : -1, error: updateError };
+}
+
+function sendUpdate() {
+  if (win && !win.isDestroyed()) win.webContents.send('update:available', updateStatus());
 }
 
 async function checkForUpdate() {
@@ -650,11 +672,13 @@ async function checkForUpdate() {
   try {
     latestUpdate = updateFromManifest(await fetchLatestManifest());
   } catch (_) {
-    return latestUpdate; // offline o GitHub non raggiungibile: si riprova al prossimo controllo
+    return updateStatus(); // offline o GitHub non raggiungibile: si riprova al prossimo controllo
   }
-  if (win && !win.isDestroyed()) win.webContents.send('update:available', latestUpdate);
-  if (latestUpdate) notifyUpdate(latestUpdate);
-  return latestUpdate;
+  if (latestUpdate && canAutoUpdate()) downloadUpdate(latestUpdate).catch(() => {});
+  else if (latestUpdate) notifyUpdate(latestUpdate, false);
+  sendUpdate();
+  installIfIdle();
+  return updateStatus();
 }
 
 function checkForUpdateIfStale() {
@@ -663,28 +687,40 @@ function checkForUpdateIfStale() {
 
 ipcMain.handle('update:check', () => checkForUpdate());
 
-// ---- "Installa e riavvia": scarica l'installer, chiude l'app e la sostituisce ----
+// ---- Aggiornamento automatico: si scarica in background e si installa alla chiusura dell'app ----
 // Su Mac la sostituzione la fa uno script che parte solo dopo la chiusura dell'app:
 // sostituire i file di un'app in esecuzione la blocca ("non risponde").
+// La nuova app si copia accanto alla vecchia e poi si scambiano con due rinomine: se il Mac
+// si spegne durante la copia, l'app installata resta integra.
 const MAC_INSTALL_SCRIPT = `#!/bin/bash
-# Argomenti: pid dell'app, nuova app, app da sostituire, cartella temporanea
-PID="$1"; SRC="$2"; DEST="$3"; TMP="$4"
+# Argomenti: pid dell'app, nuova app, app da sostituire, cartella temporanea, 1 per riaprire l'app
+PID="$1"; SRC="$2"; DEST="$3"; TMP="$4"; REOPEN="$5"
 for i in $(seq 1 100); do kill -0 "$PID" 2>/dev/null || break; sleep 0.2; done
 kill -9 "$PID" 2>/dev/null
-BACKUP="$TMP/precedente.app"
-if [ -e "$DEST" ] && ! mv "$DEST" "$BACKUP"; then open "$DEST"; exit 1; fi
-if ditto "$SRC" "$DEST"; then
-  xattr -cr "$DEST"
-else
-  rm -rf "$DEST"
-  [ -e "$BACKUP" ] && mv "$BACKUP" "$DEST"
+NEW="$(dirname "$DEST")/.$(basename "$DEST").nuova"
+OLD="$(dirname "$DEST")/.$(basename "$DEST").precedente"
+rm -rf "$NEW" "$OLD"
+if ditto "$SRC" "$NEW"; then
+  xattr -cr "$NEW"
+  if [ ! -e "$DEST" ] || mv "$DEST" "$OLD"; then
+    if mv "$NEW" "$DEST"; then rm -rf "$OLD"; elif [ -e "$OLD" ]; then mv "$OLD" "$DEST"; fi
+  fi
 fi
-open "$DEST"
-sleep 10
+rm -rf "$NEW"
+[ "$REOPEN" = 1 ] && open "$DEST"
 rm -rf "$TMP"
 `;
 
+// Si installa anche con l'app aperta se il computer è inattivo da un'ora (es. di notte):
+// su Mac molti non escono mai dall'app, chiudono solo la finestra.
+const UPDATE_IDLE_INSTALL_S = 60 * 60;
+
+let preparedUpdate = null; // { version, dir, promise, progress, ready, launch(reopen) }
+let updateError = null;
 let installingUpdate = false;
+let systemShuttingDown = false;
+
+const canAutoUpdate = () => app.isPackaged && (IS_MAC || IS_WIN);
 
 const run = (cmd, args) => new Promise((resolve, reject) => {
   execFile(cmd, args, (err, stdout, stderr) => (err ? reject(new Error(stderr.trim() || err.message)) : resolve(stdout)));
@@ -739,37 +775,81 @@ async function prepareMacInstall(dmg, dir) {
   } finally {
     await run('hdiutil', ['detach', mnt, '-force']).catch(() => {});
   }
+  fs.rmSync(dmg, { force: true });
   const script = path.join(dir, 'installa.sh');
   fs.writeFileSync(script, MAC_INSTALL_SCRIPT, { mode: 0o755 });
-  return () => spawn('/bin/bash', [script, String(process.pid), staged, target, dir], { detached: true, stdio: 'ignore' }).unref();
+  return (reopen) => spawn('/bin/bash', [script, String(process.pid), staged, target, dir, reopen ? '1' : '0'],
+    { detached: true, stdio: 'ignore' }).unref();
 }
 
-ipcMain.handle('update:install', async (e) => {
+// Scarica e prepara l'installazione una sola volta per versione; una versione più nuova sostituisce quella pronta
+function downloadUpdate(update) {
+  if (preparedUpdate && preparedUpdate.version === update.version) return preparedUpdate.promise;
+  if (installingUpdate) return Promise.reject(new Error('Installazione già in corso'));
+  if (preparedUpdate) fs.rm(preparedUpdate.dir, { recursive: true, force: true }, () => {});
+  const dir = fs.mkdtempSync(path.join(app.getPath('temp'), 'agency-dashboard-update-'));
+  const entry = { version: update.version, dir, progress: -1, ready: false, launch: null };
+  preparedUpdate = entry;
+  updateError = null;
+  entry.promise = (async () => {
+    const file = path.join(dir, path.basename(new URL(update.downloadUrl).pathname));
+    await downloadTo(update.downloadUrl, file, (pct) => { entry.progress = pct; sendUpdate(); });
+    // Windows: installer NSIS per utente in modalità silenziosa; --force-run riapre l'app a fine installazione
+    entry.launch = IS_MAC
+      ? await prepareMacInstall(file, dir)
+      : (reopen) => spawn(file, reopen ? ['/S', '--force-run'] : ['/S'], { detached: true, stdio: 'ignore' }).unref();
+    entry.ready = true;
+    sendUpdate();
+    notifyUpdate(update, true);
+  })();
+  entry.promise.catch((err) => {
+    if (preparedUpdate !== entry) return;
+    preparedUpdate = null; // si riprova al prossimo controllo
+    updateError = String((err && err.message) || err);
+    fs.rm(dir, { recursive: true, force: true }, () => {});
+    sendUpdate();
+  });
+  return entry.promise;
+}
+
+// Avvia lo script/installer che sostituisce l'app appena questa si chiude
+function launchPreparedUpdate(reopen) {
+  if (installingUpdate || !preparedUpdate || !preparedUpdate.ready) return false;
+  installingUpdate = true;
+  preparedUpdate.launch(reopen);
+  return true;
+}
+
+function quitForUpdate() {
+  setTimeout(() => {
+    app.quit();
+    setTimeout(() => app.exit(0), 5000); // se qualcosa trattiene la chiusura
+  }, 300);
+}
+
+function installIfIdle() {
+  if (powerMonitor.getSystemIdleTime() < UPDATE_IDLE_INSTALL_S) return;
+  if (launchPreparedUpdate(true)) quitForUpdate();
+}
+
+// Chiusura normale dell'app: si installa senza riaprirla. Allo spegnimento del Mac no, lo script verrebbe interrotto.
+app.on('before-quit', () => {
+  if (!systemShuttingDown) launchPreparedUpdate(false);
+});
+
+// "Riavvia ora": se il download non è ancora finito lo aspetta, poi installa e riapre l'app
+ipcMain.handle('update:install', async () => {
   const update = latestUpdate;
   if (!update) return { ok: false, error: 'Nessun aggiornamento disponibile' };
-  if (!app.isPackaged) return { ok: false, error: 'L\'installazione automatica funziona solo nell\'app installata' };
-  if (!IS_MAC && !IS_WIN) return { ok: false, error: 'Installazione automatica non disponibile su questo sistema' };
-  if (installingUpdate) return { ok: false, error: 'Installazione già in corso' };
-  installingUpdate = true;
+  if (!canAutoUpdate()) return { ok: false, error: 'L\'installazione automatica funziona solo nell\'app installata su Mac o Windows' };
   try {
-    const dir = fs.mkdtempSync(path.join(app.getPath('temp'), 'agency-dashboard-update-'));
-    const file = path.join(dir, path.basename(new URL(update.downloadUrl).pathname));
-    await downloadTo(update.downloadUrl, file, (pct) => e.sender.send('update:progress', pct));
-    e.sender.send('update:progress', 'install');
-    // Windows: installer NSIS per utente in modalità silenziosa; --force-run riapre l'app a fine installazione
-    const launch = IS_MAC
-      ? await prepareMacInstall(file, dir)
-      : () => spawn(file, ['/S', '--force-run'], { detached: true, stdio: 'ignore' }).unref();
-    launch();
-    setTimeout(() => {
-      app.quit();
-      setTimeout(() => app.exit(0), 5000); // se qualcosa trattiene la chiusura
-    }, 300);
-    return { ok: true };
+    await downloadUpdate(update);
   } catch (err) {
-    installingUpdate = false;
     return { ok: false, error: String((err && err.message) || err) };
   }
+  if (!launchPreparedUpdate(true)) return { ok: false, error: 'Installazione già in corso' };
+  quitForUpdate();
+  return { ok: true };
 });
 
 // Aperta una seconda volta: si riporta in primo piano questa finestra. Se la nuova copia è una
@@ -1353,6 +1433,7 @@ app.whenReady().then(() => {
   // Il controllo gira nel processo principale: funziona anche con la finestra chiusa (Mac) o ridotta a icona
   setInterval(checkForUpdate, UPDATE_POLL_MS);
   powerMonitor.on('resume', checkForUpdateIfStale);
+  powerMonitor.on('shutdown', () => { systemShuttingDown = true; });
   loadCloud();
   syncCloud();
   setInterval(syncCloud, CLOUD_POLL_MS);

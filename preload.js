@@ -16,7 +16,6 @@ contextBridge.exposeInMainWorld('api', {
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   onUpdate: (cb) => ipcRenderer.on('update:available', (_e, update) => cb(update)),
   installUpdate: () => ipcRenderer.invoke('update:install'),
-  onUpdateProgress: (cb) => ipcRenderer.on('update:progress', (_e, progress) => cb(progress)),
   setAppearance: (appearance) => ipcRenderer.invoke('appearance:set', appearance),
   setIcon: (dataUrl) => ipcRenderer.invoke('icon:set', dataUrl),
   asanaGet: () => ipcRenderer.invoke('asana:get'),
