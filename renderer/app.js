@@ -315,7 +315,14 @@ const RTE_COMMANDS = [
 ];
 function richTextInput(value) {
   const content = h('div', { class: 'rte-content', contenteditable: 'true' });
-  content.innerHTML = value || '';
+  content.innerHTML = sanitizeHtml(value);
+  // Incollando da ChatGPT, Note, siti…: si tiene solo la formattazione dell'editor (niente colori, font, sfondi)
+  content.addEventListener('paste', (e) => {
+    const html = e.clipboardData.getData('text/html');
+    if (!html) return;
+    e.preventDefault();
+    document.execCommand('insertHTML', false, sanitizeHtml(html));
+  });
   const toolbar = h('div', { class: 'rte-toolbar' }, RTE_COMMANDS.map(([cmd, iconName, title]) =>
     h('button', { type: 'button', title,
       onmousedown: (e) => e.preventDefault(),
@@ -885,7 +892,7 @@ function appuntoForm(a, received = false) {
   stopAppuntoAutosave();
   const titleInput = h('input', { type: 'text', value: a?.title || '', placeholder: 'Es. Riunione cliente' });
   const dateInput = h('input', { type: 'date', value: a?.date || todayISO() });
-  const rte = richTextInput(received ? sanitizeHtml(a.html) : a?.html || '');
+  const rte = richTextInput(a?.html || '');
   const content = rte.querySelector('.rte-content');
   const status = h('span', { class: 'sheet-status' });
   const read = () => ({ title: titleInput.value.trim(), date: dateInput.value || todayISO(), html: content.innerHTML.trim() });
@@ -979,7 +986,7 @@ function renderAppunti(view) {
 
 function appuntoCard(a, connected) {
   const body = h('div', { class: 'appunto-body' });
-  body.innerHTML = a.html || '';
+  body.innerHTML = sanitizeHtml(a.html);
   const tasks = a.asanaTasks || [];
   const shared = a.sharedWith || [];
   const me = cloudState.user?.email || '';
@@ -1199,7 +1206,7 @@ async function shareDialog(a) {
   dlg.showModal();
 }
 
-// HTML degli appunti dei colleghi: solo la formattazione dell'editor, senza attributi
+// HTML degli appunti (anche incollato da fuori): solo la formattazione dell'editor, senza attributi
 const SAFE_TAGS = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'S', 'STRIKE', 'DEL', 'UL', 'OL', 'LI', 'BR', 'DIV', 'P', 'SPAN', 'BLOCKQUOTE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6']);
 function sanitizeHtml(html) {
   const doc = new DOMParser().parseFromString(html || '', 'text/html');
