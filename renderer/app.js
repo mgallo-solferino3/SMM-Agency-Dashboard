@@ -1793,6 +1793,7 @@ const MANUAL_TAB = 'Aggiunte a mano';
 let sheetSyncing = false;
 let lastSheetAttempt = 0; // anche i tentativi falliti: niente nuovi tentativi automatici a ogni ridisegno
 let pixiesetQuery = '';
+let pixiesetClient = ''; // cliente scelto nel menu (chiave da clientKey)
 
 const renderIfPixiesetVisible = () => { if (page === 'pixieset') render(); };
 
@@ -1817,7 +1818,7 @@ function parseCsv(text) {
 }
 
 // Ogni cella arriva come { v: testo visibile, u: link collegato al testo } (dallo script Google; dal CSV u è sempre null).
-// Colonne riconosciute dall'intestazione: Cliente/Nome, Link, Password, Data, Note.
+// Colonne riconosciute dall'intestazione: Cliente/Nome, Link, Password, Data, Note, Descrizione (es. "Descrizione set").
 // Senza intestazione ogni riga si legge da sola: il primo link è la galleria, il primo testo il nome.
 const isHttpUrl = (v) => /^https?:\/\/\S+$/i.test((v || '').trim());
 const DATE_RE = /^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$/;
@@ -1832,7 +1833,7 @@ function galleriesFromSheet(rows) {
   const iUrl = col(/link|url|indirizzo/);
   const idx = iUrl < 0 ? null : {
     url: iUrl, name: col(/cliente|nome|name|titolo|title|galleria/), password: col(/password|pass|pwd/),
-    date: col(/^data|date/), note: col(/note|descrizione/),
+    date: col(/^data|date/), note: col(/note/), desc: col(/descrizione/),
   };
   const list = [];
   let skipped = 0;
@@ -1849,6 +1850,7 @@ function galleriesFromSheet(rows) {
         // testo collegato al posto dell'URL, es. "Sequenze by La Ville"
         title: linkText && !isHttpUrl(linkText) && !GENERIC_LINK_TEXT.test(linkText) ? linkText : '',
         password: cellText(cells[idx.password]), date: cellText(cells[idx.date]), note: cellText(cells[idx.note]),
+        desc: cellText(cells[idx.desc]),
       };
       // riga scritta una colonna più a sinistra: la data è finita nella colonna della password
       if (DATE_RE.test(g.password) && !DATE_RE.test(g.date)) {
@@ -1861,7 +1863,7 @@ function galleriesFromSheet(rows) {
       g = { url: links[0] || '', name: cells.map(cellText).find((v) => v && !isHttpUrl(v)) || '' };
     }
     if (!g.url) { skipped++; continue; }
-    list.push({ name: g.name || '', title: g.note || g.title || '', date: DATE_RE.test(g.date || '') ? g.date : '',
+    list.push({ name: g.name || '', desc: g.desc || '', title: g.note || g.title || '', date: DATE_RE.test(g.date || '') ? g.date : '',
       password: g.password || '', url: g.url });
   }
   return { list, skipped };
@@ -1903,6 +1905,7 @@ async function syncPixiesetSheet({ quiet = false } = {}) {
 function galleryFields(g = {}) {
   return [
     { name: 'name', label: 'Cliente', value: g.name || '', placeholder: 'Es. La Ville' },
+    { name: 'desc', label: 'Descrizione set (facoltativa)', value: g.desc || '', placeholder: 'Es. Piatti menù invernale' },
     { name: 'title', label: 'Galleria (facoltativo)', value: g.title || '', placeholder: 'Es. Shooting autunno' },
     { name: 'url', label: 'Link della galleria', value: g.url || '', placeholder: 'https://studio.pixieset.com/galleria/' },
     { name: 'password', label: 'Password (facoltativa)', value: g.password || '' },
@@ -1916,7 +1919,7 @@ function editGallery(g) {
       if (!v.url) return false;
       const url = normalizeUrl(v.url);
       const target = g || { id: uid(), source: 'manual' };
-      Object.assign(target, { url, name: v.name || deriveLabel(url), title: v.title, password: v.password, date: v.date });
+      Object.assign(target, { url, name: v.name || deriveLabel(url), desc: v.desc, title: v.title, password: v.password, date: v.date });
       if (!g) state.pixieset.unshift(target);
       state.pixiesetSheet.tab = MANUAL_TAB;
       save(); render();
@@ -1940,14 +1943,19 @@ function connectSheet() {
     } });
 }
 
-const galleryTab = (g) => (g.source === 'sheet' ? g.tab || 'Foglio' : MANUAL_TAB);
+// Scheda del foglio → fotografo ("Foto Matteo 2026" → "Matteo"): più schede dello stesso fotografo finiscono insieme
+const photographerOf = (tab) => String(tab || '').replace(/^foto\s+/i, '').replace(/\s*\d{4}$/, '').trim() || tab || 'Foglio';
+const galleryTab = (g) => (g.source === 'sheet' ? photographerOf(g.tab) : MANUAL_TAB);
+const ALL_TAB = 'Tutte';
+const clientKey = (name) => String(name || '').trim().replace(/\s+/g, ' ').toUpperCase();
 
 function galleryRow(g) {
   const url = normalizeUrl(g.url);
-  const sub = [g.date, hostOf(url)].filter(Boolean).join(' · ');
+  const sub = [g.title, g.date, hostOf(url)].filter(Boolean).join(' · ');
   return h('div', { class: 'record gallery-row' },
     h('div', { class: 'record-main' },
-      h('div', { class: 'record-title' }, g.name, g.title && h('span', { class: 'gallery-title' }, ' · ', g.title)),
+      h('div', { class: 'record-title' }, g.name, g.desc && h('span', { class: 'gallery-title' }, ' · ', g.desc),
+        g.source === 'sheet' && projectTag(galleryTab(g))),
       h('div', { class: 'record-meta', title: url }, sub)),
     h('button', { class: 'ghost small', title: url, onclick: () => window.api.openExternal(url) }, 'Apri'),
     h('button', { class: 'ghost small', title: 'Copia link', onclick: () => copy(url, 'Link copiato') }, icon('copy'), ' Link'),
@@ -1959,7 +1967,7 @@ function galleryRow(g) {
     }) }, icon('xmark')));
 }
 
-const galleryMatches = (g, q) => `${g.name} ${g.title || ''} ${g.date || ''} ${g.url}`.toLowerCase().includes(q);
+const galleryMatches = (g, q) => `${g.name} ${g.desc || ''} ${g.title || ''} ${g.date || ''} ${g.url}`.toLowerCase().includes(q);
 
 function renderPixieset(view) {
   const cfg = state.pixiesetSheet;
@@ -1981,26 +1989,42 @@ function renderPixieset(view) {
     return;
   }
 
-  // Una scheda per foglio (fotografo), più quelle aggiunte a mano
-  const tabs = [...new Set(state.pixieset.map(galleryTab))].sort((a, b) => (a === MANUAL_TAB) - (b === MANUAL_TAB));
+  // Tutte, una scheda per fotografo, più quelle aggiunte a mano
+  const photographers = [...new Set(state.pixieset.map(galleryTab))].sort((a, b) => (a === MANUAL_TAB) - (b === MANUAL_TAB));
+  const tabs = photographers.length > 1 ? [ALL_TAB, ...photographers] : photographers;
   if (!tabs.includes(cfg.tab)) cfg.tab = tabs[0];
+  const inTab = state.pixieset.filter((g) => cfg.tab === ALL_TAB || galleryTab(g) === cfg.tab);
   if (tabs.length > 1) {
     view.append(h('div', { class: 'subtabs' }, tabs.map((t) =>
       h('button', { class: 'subtab' + (t === cfg.tab ? ' active' : ''), onclick: () => { cfg.tab = t; save(); render(); } },
-        t, h('span', { class: 'subtab-count' }, state.pixieset.filter((g) => galleryTab(g) === t).length)))));
+        t, h('span', { class: 'subtab-count' }, t === ALL_TAB ? state.pixieset.length : state.pixieset.filter((g) => galleryTab(g) === t).length)))));
   }
+
+  // Clienti della scheda (nomi scritti in modo diverso solo per maiuscole o spazi vanno insieme)
+  const clients = new Map();
+  for (const g of inTab) {
+    const k = clientKey(g.name);
+    if (k) clients.set(k, { name: clients.get(k)?.name || g.name.trim(), count: (clients.get(k)?.count || 0) + 1 });
+  }
+  if (pixiesetClient && !clients.has(pixiesetClient)) pixiesetClient = '';
 
   // Il filtro ridisegna solo l'elenco, così il campo non perde il focus
   const list = h('div', { class: 'card records' });
   const fill = () => {
     const q = pixiesetQuery.trim().toLowerCase();
-    const shown = state.pixieset.filter((g) => galleryTab(g) === cfg.tab && (!q || galleryMatches(g, q)));
+    const shown = inTab.filter((g) => (!pixiesetClient || clientKey(g.name) === pixiesetClient) && (!q || galleryMatches(g, q)));
     list.replaceChildren(...(shown.length ? shown.map(galleryRow) : [h('div', { class: 'empty' }, 'Nessuna galleria trovata.')]));
   };
+  const clientSelect = h('select', { title: 'Filtra per cliente', onchange: (e) => { pixiesetClient = e.target.value; fill(); } },
+    h('option', { value: '' }, `Tutti i clienti (${clients.size})`),
+    [...clients].sort((a, b) => a[1].name.localeCompare(b[1].name, 'it')).map(([k, c]) => h('option', { value: k }, `${c.name} (${c.count})`)));
+  clientSelect.value = pixiesetClient;
   view.append(
-    h('div', { class: 'search gallery-search' }, icon('magnifying-glass', 'search-icon'),
-      h('input', { type: 'text', placeholder: 'Cerca cliente, galleria, data…', value: pixiesetQuery,
-        oninput: (e) => { pixiesetQuery = e.target.value; fill(); } })),
+    h('div', { class: 'gallery-filters' },
+      h('div', { class: 'search gallery-search' }, icon('magnifying-glass', 'search-icon'),
+        h('input', { type: 'text', placeholder: 'Cerca cliente, descrizione, data…', value: pixiesetQuery,
+          oninput: (e) => { pixiesetQuery = e.target.value; fill(); } })),
+      clientSelect),
     list);
   fill();
 }

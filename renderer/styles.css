@@ -322,7 +322,9 @@ button.icon .fa-icon { width: 12px; height: 12px; vertical-align: -1px; }
 .tool-group-title .fa-icon { width: 14px; height: 14px; color: var(--accent); }
 
 /* Pixieset */
-.gallery-search { margin-bottom: 14px; }
+.gallery-filters { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+.gallery-filters .gallery-search { flex: 1; margin-bottom: 0; }
+.gallery-filters select { width: auto; max-width: 40%; }
 .gallery-search input { font-size: 14px; padding: 10px 12px 10px 40px; }
 .gallery-row { gap: 8px; }
 .gallery-row .ghost { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
