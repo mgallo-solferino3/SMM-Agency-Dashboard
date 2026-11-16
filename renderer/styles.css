@@ -427,3 +427,5 @@ dialog::backdrop { background: rgba(2, 24, 43, .6); }
 .attachments.dragging { border-color: var(--accent); background: var(--accent-soft); }
 .attachments .record:last-child { border-bottom: 0; }
 .attachment-icon { flex: none; width: 28px; text-align: center; color: var(--muted); }
+
+.greet-name { color: var(--accent); }

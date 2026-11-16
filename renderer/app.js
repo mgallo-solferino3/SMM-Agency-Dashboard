@@ -463,7 +463,7 @@ function render() {
   let meta = visiblePages().find((p) => p.id === page);
   if (!meta) { page = 'home'; meta = COMMON_PAGES[0]; }
   renderNav();
-  $('#page-title').textContent = page === 'home' ? greeting() : meta.label;
+  if (page === 'home') showGreeting(); else $('#page-title').textContent = meta.label;
   const btn = $('#btn-edit');
   // Nei Progetti modifica ed eliminazione stanno nella scheda di ogni progetto
   btn.hidden = (!EDITABLE.has(page) && !RECORD_TYPES[page]) || !!RECORD_TYPES[page]?.detail;
@@ -483,7 +483,12 @@ function greeting() {
   const hello = hr < 6 ? 'Buonanotte' : hr < 13 ? 'Buongiorno' : hr < 18 ? 'Buon pomeriggio' : 'Buonasera';
   // Nome dall'account cloud, altrimenti da Asana: basta il primo nome
   const first = (cloudState.user?.name || asanaState.user || '').trim().split(/\s+/)[0];
-  return first ? `${hello} ${first}` : hello;
+  return [hello, first];
+}
+// Il nome ha un colore a parte
+function showGreeting() {
+  const [hello, first] = greeting();
+  $('#page-title').replaceChildren(hello, ...(first ? [' ', h('span', { class: 'greet-name' }, first)] : []));
 }
 
 // --- In evidenza in home: stellina su strumenti e snippet (.home), appunti (state.homeAppunti) e task Asana (state.homeAsana)
@@ -2120,7 +2125,7 @@ let asanaHighlight = new Set();
 
 function onAsanaUpdate(s) {
   asanaState = s;
-  if (page === 'home') $('#page-title').textContent = greeting();
+  if (page === 'home') showGreeting();
   if (page === 'asana' && s.unseen.length) {
     s.unseen.forEach((g) => asanaHighlight.add(g));
     window.api.asanaSeen();
@@ -2337,7 +2342,7 @@ function onCloudUpdate(c) {
   const notesChanged = JSON.stringify(c.sharedNotes || []) !== JSON.stringify(cloudState.sharedNotes || []);
   const synced = c.syncedAt !== cloudState.syncedAt;
   cloudState = c;
-  if (page === 'home') $('#page-title').textContent = greeting();
+  if (page === 'home') showGreeting();
   if (!c.connected) { adminUsers = null; kitDraft = null; teamList = null; }
   if (synced) teamList = null; // nuovi colleghi o nomi cambiati
   if (page === 'settings' || roleChanged || (page === 'appunti' && (notesChanged || synced) && !appuntoFormFor)) render();
