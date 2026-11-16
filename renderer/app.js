@@ -403,8 +403,7 @@ const PROFILE_PAGES = {
   font: { label: 'Font', icon: 'font' },
   shooting: { label: 'Shooting', icon: 'camera' },
   pixieset: { label: 'Pixieset', icon: 'images' },
-  lead: { label: 'Lead', icon: 'handshake' },
-  preventivi: { label: 'Preventivi', icon: 'file-invoice' },
+  preventivo: { label: 'Preventivo veloce', icon: 'file-invoice' },
   progetti: { label: 'Progetti', icon: 'folder-open' },
   scadenze: { label: 'Scadenze', icon: 'hourglass-half' },
 };
@@ -412,7 +411,7 @@ const PROFILES = [
   { id: 'smm', label: 'Social Media Manager', icon: 'hashtag', pages: ['utm', 'calendario'] },
   { id: 'grafico', label: 'Grafico', icon: 'pen-nib', pages: ['palette', 'font'] },
   { id: 'fotografo', label: 'Fotografo', icon: 'camera-retro', pages: ['shooting', 'pixieset'] },
-  { id: 'commerciale', label: 'Commerciale', icon: 'briefcase', pages: ['lead', 'preventivi'] },
+  { id: 'commerciale', label: 'Commerciale', icon: 'briefcase', pages: ['preventivo'] },
   { id: 'pm', label: 'Project Manager', icon: 'list-check', pages: ['progetti', 'scadenze'] },
 ];
 const SETTINGS_PAGE = { id: 'settings', label: 'Impostazioni', icon: 'gear' };
@@ -473,7 +472,7 @@ function render() {
   view.classList.toggle('editing', editing);
   view.innerHTML = '';
   const renderers = { home: renderHome, tools: renderTools, idee: renderIdee, todos: renderTodos,
-    appunti: renderAppunti, utm: renderUtm, snippets: renderSnippets,
+    appunti: renderAppunti, utm: renderUtm, snippets: renderSnippets, preventivo: renderPreventivo,
     palette: renderPalette, pixieset: renderPixieset, asana: renderAsana, settings: renderSettings };
   (renderers[page] || ((v) => renderRecords(v, page)))(view);
 }
@@ -1439,6 +1438,129 @@ function renderUtm(view) {
   upd();
 }
 
+// --- PREVENTIVO VELOCE
+// Costo = ore × costo orario + spese; il margine è sul prezzo di vendita (prezzo = costo / (1 − margine)),
+// lo sconto si applica al prezzo, l'IVA all'imponibile. Le voci valgono per il periodo scelto.
+const PERIODS = [['once', 'Una tantum'], ['month', 'Mensile'], ['year', 'Annuale']];
+function normalizePreventivo(p) {
+  p = p && typeof p === 'object' ? p : {};
+  const str = (v, d = '') => (v == null ? d : String(v));
+  return {
+    hourly: str(p.hourly), margin: str(p.margin), discount: str(p.discount), vat: str(p.vat, '22'),
+    period: PERIODS.some(([id]) => id === p.period) ? p.period : 'once',
+    items: (Array.isArray(p.items) ? p.items : []).map((x) => ({ id: x.id || uid(), desc: str(x.desc), hours: str(x.hours), extra: str(x.extra) })),
+  };
+}
+const num = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return isFinite(n) ? n : 0; };
+const pct = (v) => Math.min(Math.max(num(v), 0), 100) / 100;
+
+function quoteTotals(q) {
+  const itemCost = (x) => num(x.hours) * num(q.hourly) + num(x.extra);
+  const cost = q.items.reduce((sum, x) => sum + itemCost(x), 0);
+  const m = Math.min(pct(q.margin), 0.99);
+  const price = cost / (1 - m);
+  const discount = price * pct(q.discount);
+  const net = price - discount;
+  const vat = net * pct(q.vat);
+  return { itemCost, cost, price, discount, net, vat, total: net + vat, hours: q.items.reduce((sum, x) => sum + num(x.hours), 0),
+    realMargin: net > 0 ? (net - cost) / net : 0 };
+}
+
+let scorporo = '';
+function renderPreventivo(view) {
+  const q = state.preventivo;
+  const sumBox = h('div', { class: 'calc-sum' });
+  const scorporoOut = h('div', { class: 'calc-sum' });
+  const costCells = [];
+  const fmtPct = (v) => `${(v * 100).toLocaleString('it-IT', { maximumFractionDigits: 1 })}%`;
+  const line = (label, value, cls = '') => h('div', { class: 'calc-line ' + cls }, h('span', null, label), h('b', null, value));
+
+  // Mensile ↔ annuale: le voci valgono per il periodo scelto, l'altro si ricava (×12 o ÷12)
+  const other = () => (q.period === 'month' ? ['Annuale', 12] : q.period === 'year' ? ['Mensile', 1 / 12] : null);
+  const periodLabel = () => PERIODS.find(([id]) => id === q.period)[1];
+  function upd() {
+    const t = quoteTotals(q);
+    q.items.forEach((x, i) => { if (costCells[i]) costCells[i].textContent = formatMoney(t.itemCost(x)); });
+    const o = other();
+    const val = (v) => (o ? `${formatMoney(v)}  ·  ${o[0].toLowerCase()} ${formatMoney(v * o[1])}` : formatMoney(v));
+    sumBox.replaceChildren(
+      line(`Costo interno (${t.hours.toLocaleString('it-IT')} h)`, val(t.cost), 'muted'),
+      line(`Margine ${fmtPct(Math.min(pct(q.margin), 0.99))}`, val(t.price - t.cost), 'muted'),
+      line('Prezzo di listino', val(t.price)),
+      pct(q.discount) > 0 && line(`Sconto ${fmtPct(pct(q.discount))}`, val(-t.discount)),
+      line('Imponibile', val(t.net), 'strong'),
+      line(`IVA ${fmtPct(pct(q.vat))}`, val(t.vat)),
+      line(o ? `Totale ${periodLabel().toLowerCase()} IVA inclusa` : 'Totale IVA inclusa', val(t.total), 'total'),
+      pct(q.discount) > 0 && line('Margine effettivo dopo lo sconto', fmtPct(t.realMargin), 'muted'));
+    const gross = num(scorporo);
+    const net = gross / (1 + pct(q.vat));
+    scorporoOut.replaceChildren(line('Imponibile', formatMoney(net)), line(`IVA ${fmtPct(pct(q.vat))}`, formatMoney(gross - net)));
+  }
+  const set = (key) => (e) => { q[key] = e.target.value; save(); upd(); };
+  const numInput = (value, oninput, ph = '0') => h('input', { type: 'text', inputmode: 'decimal', value, placeholder: ph, oninput });
+  const field = (label, key, ph) => h('label', { class: 'field' }, h('span', null, label), numInput(q[key], set(key), ph));
+
+  view.append(h('div', { class: 'card' },
+    h('div', { class: 'calc-params' },
+      field('Costo orario (€/h)', 'hourly', 'Es. 35'),
+      field('Margine (%)', 'margin', 'Es. 30'),
+      field('Sconto (%)', 'discount', '0'),
+      field('IVA (%)', 'vat', '22'),
+      h('label', { class: 'field' }, h('span', null, 'Periodo'),
+        h('select', { onchange: (e) => { q.period = e.target.value; save(); render(); } },
+          PERIODS.map(([id, label]) => h('option', { value: id, selected: id === q.period }, label)))))));
+
+  view.append(h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, h('h3', null, q.period === 'once' ? 'Voci' : `Voci (${periodLabel().toLowerCase()})`)),
+    q.items.length > 0 && h('div', { class: 'calc-row calc-row-head' }, h('span', null, 'Descrizione'), h('span', null, 'Ore'), h('span', null, 'Spese (€)'), h('span', null, 'Costo'), h('span')),
+    q.items.map((x) => {
+      const cell = h('span', { class: 'calc-cost' });
+      costCells.push(cell);
+      const setX = (key) => (e) => { x[key] = e.target.value; save(); upd(); };
+      return h('div', { class: 'calc-row' },
+        h('input', { type: 'text', value: x.desc, placeholder: 'Es. Gestione Instagram', oninput: setX('desc') }),
+        numInput(x.hours, setX('hours')), numInput(x.extra, setX('extra')), cell,
+        h('button', { class: 'icon', title: 'Togli voce', onclick: () => { q.items = q.items.filter((y) => y.id !== x.id); save(); render(); } }, icon('xmark')));
+    }),
+    !q.items.length && h('div', { class: 'empty' }, 'Aggiungi le attività con le ore previste e le eventuali spese.'),
+    h('div', { class: 'row', style: 'margin-top:10px' },
+      h('button', { class: 'ghost small', onclick: () => { q.items.push({ id: uid(), desc: '', hours: '', extra: '' }); save(); render(); } }, '+ Aggiungi voce'))));
+
+  view.append(h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, h('h3', null, 'Riepilogo')),
+    sumBox,
+    h('div', { class: 'row', style: 'margin-top:14px' },
+      h('button', { class: 'primary', onclick: () => copy(quoteText(q), 'Riepilogo copiato') }, 'Copia riepilogo'),
+      h('button', { class: 'ghost', onclick: () => confirmBox('Azzerare il preventivo?', () => {
+        Object.assign(q, { margin: '', discount: '', period: 'once', items: [] }); save(); render();
+      }, 'Azzera') }, 'Azzera'))));
+
+  view.append(h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, h('h3', null, 'Scorporo IVA')),
+    h('label', { class: 'field' }, h('span', null, 'Importo IVA inclusa (€)'), numInput(scorporo, (e) => { scorporo = e.target.value; upd(); }, 'Es. 1220')),
+    scorporoOut));
+  upd();
+}
+
+// Testo per il cliente: voci con il loro prezzo (costo e margine restano interni)
+function quoteText(q) {
+  const t = quoteTotals(q);
+  const k = t.cost > 0 ? t.price / t.cost : 0;
+  const o = q.period === 'month' ? ['annuale', 12] : q.period === 'year' ? ['mensile', 1 / 12] : null;
+  const suffix = q.period === 'month' ? ' / mese' : q.period === 'year' ? ' / anno' : '';
+  const lines = q.items.filter((x) => x.desc.trim() || t.itemCost(x))
+    .map((x) => `• ${x.desc.trim() || 'Voce'}: ${formatMoney(t.itemCost(x) * k)}${suffix}`);
+  return [
+    'Preventivo', '', ...lines, '',
+    pct(q.discount) > 0 && `Totale: ${formatMoney(t.price)}${suffix}`,
+    pct(q.discount) > 0 && `Sconto ${num(q.discount).toLocaleString('it-IT')}%: −${formatMoney(t.discount)}`,
+    `Imponibile: ${formatMoney(t.net)}${suffix}`,
+    `IVA ${num(q.vat).toLocaleString('it-IT')}%: ${formatMoney(t.vat)}`,
+    `Totale IVA inclusa: ${formatMoney(t.total)}${suffix}`,
+    o && `(${o[0]}: ${formatMoney(t.total * o[1])} IVA inclusa)`,
+  ].filter((l) => l !== false && l != null).join('\n');
+}
+
 // --- SNIPPET
 function snippetFields(s = {}) {
   return [
@@ -1538,36 +1660,6 @@ const RECORD_TYPES = {
     ],
     statuses: [st('Da organizzare', 'neutral'), st('Confermato', 'info'), st('Scattato', 'progress'),
       st('In post-produzione', 'progress'), st('Consegnato', 'done')],
-  },
-  lead: {
-    singular: 'lead', addLabel: 'Nuovo lead', empty: 'Nessun lead.',
-    titleField: 'name', dateField: 'next', groupBy: 'status', amountField: 'value', upcoming: true,
-    meta: ['company', 'contact', 'source'],
-    fields: [
-      { name: 'name', label: 'Nome', required: true, placeholder: 'Es. Mario Rossi' },
-      { name: 'company', label: 'Azienda' },
-      { name: 'contact', label: 'Email o telefono' },
-      { name: 'source', label: 'Provenienza', type: 'select', options: ['Passaparola', 'Sito web', 'Social', 'Evento', 'Chiamata', 'Altro'] },
-      { name: 'value', label: 'Valore stimato (€)', type: 'number' },
-      { name: 'next', label: 'Prossimo contatto', type: 'date' },
-      { name: 'status', label: 'Stato', type: 'status' },
-      { name: 'notes', label: 'Note', type: 'textarea' },
-    ],
-    statuses: [st('Nuovo', 'neutral'), st('Contattato', 'info'), st('In trattativa', 'progress'), st('Vinto', 'done'), st('Perso', 'ko')],
-  },
-  preventivi: {
-    singular: 'preventivo', addLabel: 'Nuovo preventivo', empty: 'Nessun preventivo.',
-    titleField: 'title', dateField: 'date', groupBy: 'status', amountField: 'amount',
-    meta: ['client'],
-    fields: [
-      { name: 'date', label: 'Data', type: 'date', required: true },
-      { name: 'title', label: 'Oggetto', required: true, placeholder: 'Es. Gestione social 2027' },
-      { name: 'client', label: 'Cliente', required: true },
-      { name: 'amount', label: 'Importo (€)', type: 'number' },
-      { name: 'status', label: 'Stato', type: 'status' },
-      { name: 'notes', label: 'Note', type: 'textarea' },
-    ],
-    statuses: [st('Bozza', 'neutral'), st('Inviato', 'info'), st('Accettato', 'done'), st('Rifiutato', 'ko')],
   },
   progetti: {
     singular: 'progetto', addLabel: 'Nuovo progetto', empty: 'Nessun progetto.',
@@ -2763,6 +2855,10 @@ function normalizeState(d) {
     unshareQueue: Array.isArray(d.unshareQueue) ? d.unshareQueue : [], // miei appunti condivisi eliminati, da segnalare ancora al server
     snippets: Array.isArray(d.snippets) ? d.snippets : [],
     ...Object.fromEntries(RECORD_KEYS.map((k) => [k, Array.isArray(d[k]) ? d[k] : []])),
+    // Fino alla 1.17 il profilo Commerciale aveva le sezioni Lead e Preventivi: i dati restano nel file
+    lead: Array.isArray(d.lead) ? d.lead : [],
+    preventivi: Array.isArray(d.preventivi) ? d.preventivi : [],
+    preventivo: normalizePreventivo(d.preventivo),
     pixieset: Array.isArray(d.pixieset) ? d.pixieset : [],
     pixiesetSheet: { url: '', syncedAt: 0, error: '', ...(d.pixiesetSheet && typeof d.pixiesetSheet === 'object' ? d.pixiesetSheet : {}) },
     settings: normalizeSettings(d.settings),
@@ -2810,7 +2906,8 @@ function normalizeSettings(s) {
     palette: pick(s.palette === 'rosa' && !s.paletteChosen ? 'solferino' : s.palette, PALETTES.map((p) => p.id), 'solferino'),
     paletteChosen: !!s.paletteChosen,
     accent: /^#[0-9a-f]{6}$/i.test(s.accent) ? s.accent : '',
-    extraPages: Array.isArray(s.extraPages) ? [...new Set(s.extraPages.filter((id) => PROFILE_PAGES[id]))] : [],
+    extraPages: Array.isArray(s.extraPages)
+      ? [...new Set(s.extraPages.map((id) => (id === 'lead' || id === 'preventivi' ? 'preventivo' : id)).filter((id) => PROFILE_PAGES[id]))] : [],
     // Fino alla 1.4 l'icona predefinita era quella rosa (iconId 'rosa' senza immagine salvata)
     iconId: typeof s.iconId === 'string' && !(s.iconId === 'rosa' && !s.iconData) ? s.iconId : 'solferino',
     iconData: typeof s.iconData === 'string' && s.iconData.startsWith('data:image/') ? s.iconData : '',

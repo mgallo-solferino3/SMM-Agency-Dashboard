@@ -79,7 +79,7 @@ Le sezioni qui sopra ci sono per tutti. Il profilo scelto nelle Impostazioni agg
 | Social Media Manager | Generatore UTM, Calendario editoriale |
 | Grafico | Palette colori, Font |
 | Fotografo | Shooting, Pixieset |
-| Commerciale | Lead, Preventivi |
+| Commerciale | Preventivo veloce (costo orario, margine, sconto, IVA, mensile/annuale, scorporo) |
 | Project Manager | Progetti, Scadenze |
 
 Nelle Impostazioni, sotto **Strumenti**, si possono attivare con una spunta anche gli strumenti degli altri profili (es. un Social Media Manager può aggiungere Palette colori e Font): compaiono nel menu sotto **Altri strumenti**.
