@@ -1954,8 +1954,8 @@ function galleryRow(g) {
   const sub = [g.title, g.date, hostOf(url)].filter(Boolean).join(' · ');
   return h('div', { class: 'record gallery-row' },
     h('div', { class: 'record-main' },
-      h('div', { class: 'record-title' }, g.name, g.desc && h('span', { class: 'gallery-title' }, ' · ', g.desc),
-        g.source === 'sheet' && projectTag(galleryTab(g))),
+      h('div', { class: 'record-title' }, g.name, g.source === 'sheet' && projectTag(galleryTab(g))),
+      g.desc && h('div', { class: 'gallery-desc' }, g.desc),
       h('div', { class: 'record-meta', title: url }, sub)),
     h('button', { class: 'ghost small', title: url, onclick: () => window.api.openExternal(url) }, 'Apri'),
     h('button', { class: 'ghost small', title: 'Copia link', onclick: () => copy(url, 'Link copiato') }, icon('copy'), ' Link'),
