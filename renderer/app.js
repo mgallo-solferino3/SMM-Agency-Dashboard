@@ -1459,7 +1459,7 @@ function renderSnippets(view) {
         save(); render();
       } },
       h('div', { class: 'card-head' },
-        h('h3', null, s.title),
+        h('h3', { title: s.title }, s.title),
         h('button', { class: 'ghost small', onclick: () => copy(s.text) }, 'Copia'),
         editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => openForm({ title: 'Modifica snippet', fields: snippetFields(s),
           onSubmit: (v) => { if (!v.title || !v.text) return false; s.title = v.title; s.text = v.text; save(); render(); } }) }, icon('pen')),
