@@ -480,7 +480,10 @@ function render() {
 
 function greeting() {
   const hr = new Date().getHours();
-  return hr < 6 ? 'Buonanotte' : hr < 13 ? 'Buongiorno' : hr < 18 ? 'Buon pomeriggio' : 'Buonasera';
+  const hello = hr < 6 ? 'Buonanotte' : hr < 13 ? 'Buongiorno' : hr < 18 ? 'Buon pomeriggio' : 'Buonasera';
+  // Nome dall'account cloud, altrimenti da Asana: basta il primo nome
+  const first = (cloudState.user?.name || asanaState.user || '').trim().split(/\s+/)[0];
+  return first ? `${hello} ${first}` : hello;
 }
 
 // --- In evidenza in home: stellina su strumenti e snippet (.home), appunti (state.homeAppunti) e task Asana (state.homeAsana)
@@ -2117,6 +2120,7 @@ let asanaHighlight = new Set();
 
 function onAsanaUpdate(s) {
   asanaState = s;
+  if (page === 'home') $('#page-title').textContent = greeting();
   if (page === 'asana' && s.unseen.length) {
     s.unseen.forEach((g) => asanaHighlight.add(g));
     window.api.asanaSeen();
@@ -2333,6 +2337,7 @@ function onCloudUpdate(c) {
   const notesChanged = JSON.stringify(c.sharedNotes || []) !== JSON.stringify(cloudState.sharedNotes || []);
   const synced = c.syncedAt !== cloudState.syncedAt;
   cloudState = c;
+  if (page === 'home') $('#page-title').textContent = greeting();
   if (!c.connected) { adminUsers = null; kitDraft = null; teamList = null; }
   if (synced) teamList = null; // nuovi colleghi o nomi cambiati
   if (page === 'settings' || roleChanged || (page === 'appunti' && (notesChanged || synced) && !appuntoFormFor)) render();
