@@ -483,8 +483,20 @@ function greeting() {
   return hr < 6 ? 'Buonanotte' : hr < 13 ? 'Buongiorno' : hr < 18 ? 'Buon pomeriggio' : 'Buonasera';
 }
 
+// --- In evidenza in home: stellina su strumenti (t.home), appunti (state.homeAppunti) e task Asana (state.homeAsana)
+function starButton(on, toggle) {
+  return h('button', { class: 'icon star-btn' + (on ? ' on' : ''), title: on ? 'Togli dalla home' : 'Metti in evidenza in home',
+    onclick: (e) => { e.stopPropagation(); toggle(); save(); render(); } }, icon('star'));
+}
+const toggleIn = (key, id) => {
+  state[key] = state[key].includes(id) ? state[key].filter((x) => x !== id) : [...state[key], id];
+};
+const toolStar = (t) => starButton(!!t.home, () => { t.home = !t.home; });
+const appuntoStar = (key) => starButton(state.homeAppunti.includes(key), () => toggleIn('homeAppunti', key));
+const asanaStar = (t) => starButton(state.homeAsana.includes(t.gid), () => toggleIn('homeAsana', t.gid));
+
 // --- Link tile
-function linkTile(item, { sub, onEdit, onDelete } = {}) {
+function linkTile(item, { sub, onEdit, onDelete, star } = {}) {
   const customIcon = (item.icon || '').trim();
   const isImageIcon = /^(https?:|data:)/.test(customIcon);
   const brand = !customIcon ? brandIconFor(item) : null;
@@ -507,12 +519,13 @@ function linkTile(item, { sub, onEdit, onDelete } = {}) {
   const profile = item.chromeProfile && chromeProfileOf(item);
   const open = () => window.api.openExternal(normalizeUrl(item.url), item.chromeProfile || '');
   const tile = h('div', { class: 'link-tile', role: 'button', tabindex: '0',
-    onclick: (e) => { if (e.target.closest('.tile-actions')) return; open(); },
+    onclick: (e) => { if (e.target.closest('.tile-actions, .star-btn')) return; open(); },
     onkeydown: (e) => { if (e.key === 'Enter') open(); },
     title: profile ? `${item.url}\nSi apre con il profilo Chrome "${profileLabel(profile)}"` : item.url },
     badge,
     h('div', { class: 'meta' }, h('div', { class: 'name' }, item.label),
       h('div', { class: 'sub' }, [sub || hostOf(item.url), profile && `👤 ${profile.name}`].filter(Boolean).join(' · '))),
+    star,
     (onEdit || onDelete) && h('div', { class: 'tile-actions' },
       onEdit && h('button', { class: 'icon', title: 'Modifica', onclick: onEdit }, icon('pen')),
       onDelete && h('button', { class: 'icon', title: 'Elimina', onclick: onDelete }, icon('xmark')))
@@ -558,10 +571,29 @@ function renderHomeBody() {
       : h('div', { class: 'empty' }, 'Niente in programma.'));
   }
 
-  body.append(h('div', { class: 'section-title' }, 'Strumenti'));
+  // Senza stelline si vedono tutti gli strumenti; con almeno una, solo quelli in evidenza
+  const starredTools = state.tools.filter((t) => t.home);
+  body.append(h('div', { class: 'section-title' }, starredTools.length ? 'Strumenti in evidenza' : 'Strumenti'));
   body.append(state.tools.length
-    ? h('div', { class: 'grid' }, state.tools.map((t) => linkTile(t, { sub: t.category })))
+    ? h('div', { class: 'grid' }, (starredTools.length ? starredTools : state.tools).map((t) => linkTile(t, { sub: t.category, star: toolStar(t) })))
     : h('div', { class: 'empty' }, 'Nessuno strumento. Aggiungili dalla sezione Strumenti.'));
+  if (state.tools.length && !starredTools.length) {
+    body.append(h('div', { class: 'hint' }, 'Usa la stellina per tenere in home solo gli strumenti principali.'));
+  }
+
+  const me = cloudState.user?.email || '';
+  const received = cloudState.connected && me ? (cloudState.sharedNotes || []).filter((n) => n.owner !== me && !n.deleted) : [];
+  const homeNotes = [
+    ...state.appunti.filter((a) => state.homeAppunti.includes(a.id)).map((a) => appuntoCard(a, cloudState.connected && !!me)),
+    ...received.filter((n) => state.homeAppunti.includes(noteKey(n))).map(sharedAppuntoCard),
+  ];
+  if (homeNotes.length) body.append(h('div', { class: 'section-title' }, 'Appunti in evidenza'), ...homeNotes);
+
+  const homeTasks = asanaState.tasks.filter((t) => state.homeAsana.includes(t.gid));
+  if (homeTasks.length) {
+    body.append(h('div', { class: 'section-title' }, 'Task Asana in evidenza'),
+      h('div', { class: 'card records' }, homeTasks.map((t) => asanaRow(t))));
+  }
 
   const open = state.todos.filter((t) => !t.done).slice(0, 5);
   body.append(h('div', { class: 'section-title' }, 'To-do aperti'));
@@ -618,6 +650,7 @@ function renderLinkSection(view, key, { addLabel, singular, tab }) {
             t.chromeProfile = v.chromeProfile || ''; save(); render();
           } }),
         onDelete: () => { state[key] = state[key].filter((x) => x.id !== t.id); save(); render(); },
+        star: key === 'tools' && toolStar(t),
       }))));
   }
 }
@@ -992,11 +1025,12 @@ function appuntoCard(a, connected) {
           shared.length > 0 && ` · condiviso con ${shared.map(personName).join(', ')}`,
           editedBy && ` · modificato da ${personName(editedBy)}`,
           a.keptFrom && ' · eliminato dal proprietario: questa è la tua copia')),
+      appuntoStar(a.id),
       connected && h('button', { class: 'ghost small', title: 'Condividi con i colleghi', onclick: () => shareDialog(a) },
         icon('share-nodes'), shared.length ? ' Condiviso' : ' Condividi'),
       asanaState.connected && h('button', { class: 'ghost small', title: 'Crea un task su Asana da questo appunto',
         onclick: () => asanaTaskDialog(a) }, icon('list-check'), ' Task Asana'),
-      editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => { appuntoFormFor = a.id; render(); } }, icon('pen')),
+      editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => editAppunto(a.id) }, icon('pen')),
       editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => confirmBox(
         shared.length ? `Eliminare "${a.title}"? I colleghi con cui è condiviso ne tengono una copia.` : `Eliminare "${a.title}"?`, () => {
           state.appunti = state.appunti.filter((x) => x.id !== a.id);
@@ -1010,6 +1044,13 @@ function appuntoCard(a, connected) {
 }
 
 // Appunto di un collega: modificabile, con il nome del proprietario
+// Dalla home (appunti in evidenza) la modifica si apre nella sezione Appunti
+function editAppunto(key) {
+  if (page !== 'appunti') go('appunti');
+  appuntoFormFor = key;
+  render();
+}
+
 function sharedAppuntoCard(n) {
   const body = h('div', { class: 'appunto-body' });
   body.innerHTML = sanitizeHtml(n.html);
@@ -1019,7 +1060,8 @@ function sharedAppuntoCard(n) {
       h('div', { style: 'flex:1; min-width:0' },
         h('h3', null, n.title, ownerTag(n.owner, ownerName(n)), notesHighlight.has(noteKey(n)) && h('span', { class: 'new-tag' }, 'Nuovo')),
         h('div', { class: 'sub' }, formatDate(n.date), ' · condiviso con te', editedBy && ` · modificato da ${editedBy}`)),
-      editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => { appuntoFormFor = noteKey(n); render(); } }, icon('pen')),
+      appuntoStar(noteKey(n)),
+      editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => editAppunto(noteKey(n)) }, icon('pen')),
       editing && h('button', { class: 'icon', title: 'Togli dalla mia lista', onclick: () => confirmBox(
         `Togliere "${n.title}" dalla tua lista? Non lo vedrai più; resta a ${ownerName(n)}.`, async () => {
           const res = await window.api.cloudDeleteNote(n.owner, n.id);
@@ -2042,6 +2084,8 @@ function onAsanaUpdate(s) {
   }
   if (page === 'asana') render();
   else renderNav();
+  // Task in evidenza in home: si ridisegna solo il contenuto, non la ricerca
+  if (page === 'home' && state.homeAsana.length && !query.trim() && $('#home-body')) renderHomeBody();
 }
 
 function connectAsana() {
@@ -2098,6 +2142,7 @@ function asanaRow(t, { showWorkspace } = {}) {
       h('div', { class: 'record-title' }, t.name, t.projects.map(projectTag),
         asanaHighlight.has(t.gid) && h('span', { class: 'new-tag' }, 'Nuovo')),
       meta.length > 0 && h('div', { class: 'record-meta' + (overdue ? ' overdue' : '') }, meta.join(' · '))),
+    asanaStar(t),
     h('button', { class: 'ghost small' }, 'Apri'));
 }
 
@@ -2664,6 +2709,8 @@ function normalizeState(d) {
     ...normalizeIdee(d),
     todos: Array.isArray(d.todos) ? d.todos : [],
     appunti: [...(Array.isArray(d.appunti) ? d.appunti : []), ...notesAsAppunto(d.notes)],
+    homeAppunti: Array.isArray(d.homeAppunti) ? d.homeAppunti : [], // id dei miei appunti, owner/id di quelli ricevuti
+    homeAsana: Array.isArray(d.homeAsana) ? d.homeAsana : [],
     unshareQueue: Array.isArray(d.unshareQueue) ? d.unshareQueue : [], // miei appunti condivisi eliminati, da segnalare ancora al server
     snippets: Array.isArray(d.snippets) ? d.snippets : [],
     ...Object.fromEntries(RECORD_KEYS.map((k) => [k, Array.isArray(d[k]) ? d[k] : []])),

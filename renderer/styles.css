@@ -163,6 +163,12 @@ label.field > span, div.field > span { display: block; font-size: 12px; color: v
 .link-tile .sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile-actions { display: none; gap: 2px; }
 .editing .tile-actions { display: flex; }
+.star-btn { color: var(--muted); opacity: .35; flex-shrink: 0; }
+.star-btn:hover { opacity: 1; }
+button.star-btn.on, button.star-btn.on:hover { color: #f5b301; opacity: 1; }
+.link-tile .star-btn:not(.on) { opacity: 0; }
+.link-tile:hover .star-btn:not(.on) { opacity: .5; }
+.link-tile .star-btn:not(.on):hover { opacity: 1; }
 
 /* Home */
 .search { position: relative; margin-bottom: 8px; }
