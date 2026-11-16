@@ -365,6 +365,11 @@ button .fa-icon { vertical-align: -0.125em; }
 .brand { font-family: var(--font-title); font-size: 22px; font-weight: 700; text-transform: uppercase; letter-spacing: .02em; display: flex; align-items: baseline; }
 .brand b { color: var(--accent); font-weight: 400; margin-left: 2px; }
 .brand span { font-family: var(--font); font-size: 10px; font-weight: 500; letter-spacing: .22em; margin-left: 10px; }
+.brand { padding-bottom: 6px; }
+.brand-quote { font-size: 11px; font-style: italic; color: var(--muted); line-height: 1.35; padding: 0 10px 16px; cursor: pointer; }
+.brand-quote:hover { color: var(--accent); }
+dialog.gif-modal { width: 640px; padding: 0; overflow: hidden; }
+dialog.gif-modal img { display: block; width: 100%; height: auto; cursor: pointer; }
 .topbar h1 { font-family: var(--font-title); font-weight: 700; font-size: 34px; letter-spacing: .01em; text-transform: uppercase; }
 dialog h2 { font-family: var(--font-title); font-weight: 700; font-size: 22px; text-transform: uppercase; letter-spacing: .02em; }
 .card-head h3 { font-weight: 600; }

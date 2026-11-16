@@ -11,7 +11,7 @@ const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).ver
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
-for (const f of ['app.js', 'icons.js', 'fonts']) cpSync(join(root, 'renderer', f), join(out, f), { recursive: true });
+for (const f of ['app.js', 'icons.js', 'fonts', 'media']) cpSync(join(root, 'renderer', f), join(out, f), { recursive: true });
 for (const f of ['api.js', 'web.css']) cpSync(join(root, 'web', f), join(out, f));
 cpSync(join(root, 'build', 'icon.png'), join(out, 'icon.png'));
 

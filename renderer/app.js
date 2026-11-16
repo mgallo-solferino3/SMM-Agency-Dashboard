@@ -2824,6 +2824,14 @@ async function boot() {
   applyAppearance();
 
   $('#btn-edit').addEventListener('click', () => { editing = !editing; render(); });
+  $('#brand-quote').addEventListener('click', () => {
+    const dlg = $('#modal');
+    dlg.innerHTML = '';
+    dlg.classList.add('gif-modal');
+    dlg.addEventListener('close', () => dlg.classList.remove('gif-modal'), { once: true });
+    dlg.append(h('img', { src: 'media/qualita.gif', alt: 'Perché a noi la qualità ci ha rotto il caxxo!', onclick: () => dlg.close() }));
+    dlg.showModal();
+  });
   $('#btn-export').addEventListener('click', async () => { if (await window.api.exportData(state)) toast('Backup esportato'); });
   $('#btn-import').addEventListener('click', async () => {
     const data = await window.api.importData();
