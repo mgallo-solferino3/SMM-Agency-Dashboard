@@ -584,8 +584,8 @@ function renderHomeBody() {
   const me = cloudState.user?.email || '';
   const received = cloudState.connected && me ? (cloudState.sharedNotes || []).filter((n) => n.owner !== me && !n.deleted) : [];
   const homeNotes = [
-    ...state.appunti.filter((a) => state.homeAppunti.includes(a.id)).map((a) => appuntoCard(a, cloudState.connected && !!me)),
-    ...received.filter((n) => state.homeAppunti.includes(noteKey(n))).map(sharedAppuntoCard),
+    ...state.appunti.filter((a) => state.homeAppunti.includes(a.id)).map((a) => collapsibleCard(appuntoCard(a, cloudState.connected && !!me), a.id)),
+    ...received.filter((n) => state.homeAppunti.includes(noteKey(n))).map((n) => collapsibleCard(sharedAppuntoCard(n), noteKey(n))),
   ];
   if (homeNotes.length) body.append(h('div', { class: 'section-title' }, 'Appunti in evidenza'), ...homeNotes);
 
@@ -1044,6 +1044,15 @@ function appuntoCard(a, connected) {
 }
 
 // Appunto di un collega: modificabile, con il nome del proprietario
+// In home gli appunti sono chiusi: si vede solo l'intestazione, il testo con un clic (aperti finché l'app resta aperta)
+const homeOpenNotes = new Set();
+function collapsibleCard(card, key) {
+  const [head, ...rest] = card.children;
+  return h('details', { class: card.className + ' collapsible', open: homeOpenNotes.has(key),
+    ontoggle: (e) => { if (e.target.open) homeOpenNotes.add(key); else homeOpenNotes.delete(key); } },
+    h('summary', null, icon('chevron-right', 'collapse-arrow'), head), ...rest);
+}
+
 // Dalla home (appunti in evidenza) la modifica si apre nella sezione Appunti
 function editAppunto(key) {
   if (page !== 'appunti') go('appunti');
