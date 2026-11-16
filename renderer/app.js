@@ -1439,8 +1439,25 @@ function renderSnippets(view) {
         state.snippets.push({ id: uid(), title: v.title, text: v.text }); save(); render();
       } }) }, '+ Nuovo snippet')));
   if (!state.snippets.length) view.append(h('div', { class: 'empty' }, 'Nessuno snippet.'));
+  // In modalità Modifica le schede si riordinano trascinandole: chi viene rilasciato prende il posto della scheda di arrivo.
+  const grid = h('div', { class: 'snippet-grid' });
+  view.append(grid);
+  let dragId = null;
   for (const s of state.snippets) {
-    view.append(h('div', { class: 'card snippet' },
+    grid.append(h('div', { class: 'card snippet' + (editing ? ' draggable' : ''), draggable: editing ? 'true' : null,
+      ondragstart: (e) => { dragId = s.id; e.dataTransfer.effectAllowed = 'move'; e.currentTarget.classList.add('drag-src'); },
+      ondragend: (e) => { dragId = null; e.currentTarget.classList.remove('drag-src'); },
+      ondragover: (e) => { if (dragId && dragId !== s.id) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); } },
+      ondragleave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('drag-over'); },
+      ondrop: (e) => {
+        e.preventDefault();
+        const from = state.snippets.findIndex((x) => x.id === dragId);
+        const to = state.snippets.findIndex((x) => x.id === s.id);
+        if (from < 0 || to < 0 || from === to) return;
+        const [moved] = state.snippets.splice(from, 1);
+        state.snippets.splice(to, 0, moved);
+        save(); render();
+      } },
       h('div', { class: 'card-head' },
         h('h3', null, s.title),
         h('button', { class: 'ghost small', onclick: () => copy(s.text) }, 'Copia'),

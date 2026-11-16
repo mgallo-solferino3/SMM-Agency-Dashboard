@@ -97,7 +97,7 @@ Le schede con una data compaiono in Home sotto **In programma**. Un clic sullo s
 
 Quando riduci a icona la finestra compare un piccolo **widget flottante** con l'icona dell'app: un clic riapre la dashboard, trascinandolo lo sposti (la posizione viene ricordata).
 
-Premi **Modifica** in alto a destra per modificare o eliminare link, clienti e snippet.
+Premi **Modifica** in alto a destra per modificare o eliminare link, clienti e snippet (gli snippet si riordinano anche trascinandoli).
 
 ## Dati e backup
 
