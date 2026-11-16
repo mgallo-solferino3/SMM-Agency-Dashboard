@@ -392,7 +392,6 @@ const COMMON_PAGES = [
   { id: 'idee', label: 'Idee', icon: 'lightbulb' },
   { id: 'todos', label: 'To-do', icon: 'square-check' },
   { id: 'asana', label: 'Asana', icon: 'bell' },
-  { id: 'notes', label: 'Note', icon: 'pen-to-square' },
   { id: 'appunti', label: 'Appunti', icon: 'note-sticky' },
   { id: 'snippets', label: 'Snippet', icon: 'quote-left' },
 ];
@@ -474,7 +473,7 @@ function render() {
   view.classList.toggle('editing', editing);
   view.innerHTML = '';
   const renderers = { home: renderHome, tools: renderTools, idee: renderIdee, todos: renderTodos,
-    notes: renderNotes, appunti: renderAppunti, utm: renderUtm, snippets: renderSnippets,
+    appunti: renderAppunti, utm: renderUtm, snippets: renderSnippets,
     palette: renderPalette, pixieset: renderPixieset, asana: renderAsana, settings: renderSettings };
   (renderers[page] || ((v) => renderRecords(v, page)))(view);
 }
@@ -856,14 +855,6 @@ function renderTodos(view) {
   } else if (!archived.length) {
     view.append(h('div', { class: 'empty' }, 'Nessuna attività completata.'));
   }
-}
-
-// --- NOTE
-function renderNotes(view) {
-  const ta = h('textarea', { style: 'min-height:60vh', placeholder: 'Appunti veloci… vengono salvati automaticamente.',
-    oninput: (e) => { state.notes = e.target.value; save(); } });
-  ta.value = state.notes || '';
-  view.append(ta);
 }
 
 // --- APPUNTI
@@ -2245,6 +2236,7 @@ function onCloudUpdate(c) {
 function onDataRemote({ data, conflict }) {
   clearTimeout(save._t);
   state = normalizeState(data);
+  if (data?.notes?.trim()) save();
   applyAppearance();
   window.api.setIcon(state.settings.iconData || null);
   render();
@@ -2647,8 +2639,7 @@ function normalizeState(d) {
     tools: Array.isArray(d.tools) ? d.tools : [],
     ...normalizeIdee(d),
     todos: Array.isArray(d.todos) ? d.todos : [],
-    notes: typeof d.notes === 'string' ? d.notes : '',
-    appunti: Array.isArray(d.appunti) ? d.appunti : [],
+    appunti: [...(Array.isArray(d.appunti) ? d.appunti : []), ...notesAsAppunto(d.notes)],
     unshareQueue: Array.isArray(d.unshareQueue) ? d.unshareQueue : [], // miei appunti condivisi eliminati, da segnalare ancora al server
     snippets: Array.isArray(d.snippets) ? d.snippets : [],
     ...Object.fromEntries(RECORD_KEYS.map((k) => [k, Array.isArray(d[k]) ? d[k] : []])),
@@ -2656,6 +2647,13 @@ function normalizeState(d) {
     pixiesetSheet: { url: '', syncedAt: 0, error: '', ...(d.pixiesetSheet && typeof d.pixiesetSheet === 'object' ? d.pixiesetSheet : {}) },
     settings: normalizeSettings(d.settings),
   };
+}
+
+// Fino alla 1.17 c'era la sezione Note (testo libero in d.notes): il testo diventa un appunto.
+function notesAsAppunto(notes) {
+  if (typeof notes !== 'string' || !notes.trim()) return [];
+  const html = notes.trim().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r?\n/g, '<br>');
+  return [{ id: uid(), title: 'Note', date: todayISO(), html }];
 }
 
 // Fino alla 1.11 Idee aveva tre schede fisse (libraries, ideaLinks, sites): diventano le prime tre schede.
@@ -2702,7 +2700,7 @@ function normalizeSettings(s) {
 async function boot() {
   const loaded = await window.api.load();
   state = loaded ? normalizeState(loaded) : seedData();
-  if (!loaded) await window.api.save(state);
+  if (!loaded || loaded.notes?.trim()) await window.api.save(state);
   applyAppearance();
 
   $('#btn-edit').addEventListener('click', () => { editing = !editing; render(); });
