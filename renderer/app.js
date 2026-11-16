@@ -1448,6 +1448,7 @@ function normalizePreventivo(p) {
   return {
     hourly: str(p.hourly), margin: str(p.margin), discount: str(p.discount), vat: str(p.vat, '22'),
     period: PERIODS.some(([id]) => id === p.period) ? p.period : 'once',
+    savedId: str(p.savedId), // preventivo salvato che si sta modificando
     items: (Array.isArray(p.items) ? p.items : []).map((x) => ({ id: x.id || uid(), desc: str(x.desc), hours: str(x.hours), extra: str(x.extra) })),
   };
 }
@@ -1466,9 +1467,49 @@ function quoteTotals(q) {
     realMargin: net > 0 ? (net - cost) / net : 0 };
 }
 
+// Salvataggio con nome e data: si salva una copia; "Apri" la riporta nel preventivo in corso
+const quoteCopy = (q) => { const { savedId, ...rest } = normalizePreventivo(JSON.parse(JSON.stringify(q))); return rest; };
+function saveQuote(asNew) {
+  const q = state.preventivo;
+  const current = !asNew && state.preventiviSalvati.find((x) => x.id === q.savedId);
+  openForm({ title: current ? 'Salva preventivo' : 'Salva come nuovo preventivo', fields: [
+    { name: 'name', label: 'Nome', value: current?.name || '', placeholder: 'Es. Ristorante Da Mario – social 2027' },
+    { name: 'date', label: 'Data', type: 'date', value: current?.date || todayISO() },
+  ], onSubmit: (v) => {
+    if (!v.name.trim()) return false;
+    const entry = { id: current?.id || uid(), name: v.name.trim(), date: v.date || todayISO(), quote: quoteCopy(q) };
+    if (current) Object.assign(current, entry); else state.preventiviSalvati.push(entry);
+    q.savedId = entry.id;
+    save(); render(); toast('Preventivo salvato');
+  } });
+}
+function savedQuotesCard() {
+  const q = state.preventivo;
+  const list = [...state.preventiviSalvati].sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name));
+  if (!list.length) return null;
+  return h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, h('h3', null, 'Preventivi salvati')),
+    list.map((x) => {
+      const t = quoteTotals(x.quote);
+      const suffix = x.quote.period === 'month' ? ' / mese' : x.quote.period === 'year' ? ' / anno' : '';
+      return h('div', { class: 'calc-saved' + (x.id === q.savedId ? ' active' : '') },
+        h('div', { class: 'calc-saved-name' }, h('b', null, x.name), h('span', null, formatDate(x.date))),
+        h('span', { class: 'calc-cost' }, formatMoney(t.total) + suffix),
+        h('button', { class: 'ghost small', onclick: () => {
+          state.preventivo = { ...quoteCopy(x.quote), savedId: x.id }; save(); render();
+        } }, 'Apri'),
+        h('button', { class: 'icon', title: 'Elimina', onclick: () => confirmBox(`Eliminare "${x.name}"?`, () => {
+          state.preventiviSalvati = state.preventiviSalvati.filter((y) => y.id !== x.id);
+          if (q.savedId === x.id) q.savedId = '';
+          save(); render();
+        }) }, icon('xmark')));
+    }));
+}
+
 let scorporo = '';
 function renderPreventivo(view) {
   const q = state.preventivo;
+  const opened = state.preventiviSalvati.find((x) => x.id === q.savedId);
   const sumBox = h('div', { class: 'calc-sum' });
   const scorporoOut = h('div', { class: 'calc-sum' });
   const costCells = [];
@@ -1501,6 +1542,11 @@ function renderPreventivo(view) {
   const field = (label, key, ph) => h('label', { class: 'field' }, h('span', null, label), numInput(q[key], set(key), ph));
 
   view.append(h('div', { class: 'card' },
+    opened && h('div', { class: 'card-head' },
+      h('h3', null, opened.name, h('span', { class: 'tool-note', style: 'margin-left:10px' }, formatDate(opened.date))),
+      h('button', { class: 'ghost small', onclick: () => {
+        Object.assign(q, { margin: '', discount: '', period: 'once', items: [], savedId: '' }); save(); render();
+      } }, 'Nuovo preventivo')),
     h('div', { class: 'calc-params' },
       field('Costo orario (€/h)', 'hourly', 'Es. 35'),
       field('Margine (%)', 'margin', 'Es. 30'),
@@ -1531,14 +1577,18 @@ function renderPreventivo(view) {
     sumBox,
     h('div', { class: 'row', style: 'margin-top:14px' },
       h('button', { class: 'primary', onclick: () => copy(quoteText(q), 'Riepilogo copiato') }, 'Copia riepilogo'),
+      h('button', { class: 'ghost', onclick: () => saveQuote(false) }, opened ? 'Salva modifiche' : 'Salva con nome'),
+      opened && h('button', { class: 'ghost', onclick: () => saveQuote(true) }, 'Salva come nuovo'),
       h('button', { class: 'ghost', onclick: () => confirmBox('Azzerare il preventivo?', () => {
-        Object.assign(q, { margin: '', discount: '', period: 'once', items: [] }); save(); render();
+        Object.assign(q, { margin: '', discount: '', period: 'once', items: [], savedId: '' }); save(); render();
       }, 'Azzera') }, 'Azzera'))));
 
   view.append(h('div', { class: 'card' },
     h('div', { class: 'card-head' }, h('h3', null, 'Scorporo IVA')),
     h('label', { class: 'field' }, h('span', null, 'Importo IVA inclusa (€)'), numInput(scorporo, (e) => { scorporo = e.target.value; upd(); }, 'Es. 1220')),
     scorporoOut));
+  const saved = savedQuotesCard();
+  if (saved) view.append(saved);
   upd();
 }
 
@@ -2859,6 +2909,8 @@ function normalizeState(d) {
     lead: Array.isArray(d.lead) ? d.lead : [],
     preventivi: Array.isArray(d.preventivi) ? d.preventivi : [],
     preventivo: normalizePreventivo(d.preventivo),
+    preventiviSalvati: (Array.isArray(d.preventiviSalvati) ? d.preventiviSalvati : []).filter((x) => x && x.id)
+      .map((x) => ({ id: x.id, name: String(x.name || ''), date: String(x.date || ''), quote: normalizePreventivo(x.quote) })),
     pixieset: Array.isArray(d.pixieset) ? d.pixieset : [],
     pixiesetSheet: { url: '', syncedAt: 0, error: '', ...(d.pixiesetSheet && typeof d.pixiesetSheet === 'object' ? d.pixiesetSheet : {}) },
     settings: normalizeSettings(d.settings),
