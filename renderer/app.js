@@ -483,7 +483,7 @@ function greeting() {
   return hr < 6 ? 'Buonanotte' : hr < 13 ? 'Buongiorno' : hr < 18 ? 'Buon pomeriggio' : 'Buonasera';
 }
 
-// --- In evidenza in home: stellina su strumenti (t.home), appunti (state.homeAppunti) e task Asana (state.homeAsana)
+// --- In evidenza in home: stellina su strumenti e snippet (.home), appunti (state.homeAppunti) e task Asana (state.homeAsana)
 function starButton(on, toggle) {
   return h('button', { class: 'icon star-btn' + (on ? ' on' : ''), title: on ? 'Togli dalla home' : 'Metti in evidenza in home',
     onclick: (e) => { e.stopPropagation(); toggle(); save(); render(); } }, icon('star'));
@@ -492,6 +492,7 @@ const toggleIn = (key, id) => {
   state[key] = state[key].includes(id) ? state[key].filter((x) => x !== id) : [...state[key], id];
 };
 const toolStar = (t) => starButton(!!t.home, () => { t.home = !t.home; });
+const snippetStar = (s) => starButton(!!s.home, () => { s.home = !s.home; });
 const appuntoStar = (key) => starButton(state.homeAppunti.includes(key), () => toggleIn('homeAppunti', key));
 const asanaStar = (t) => starButton(state.homeAsana.includes(t.gid), () => toggleIn('homeAsana', t.gid));
 
@@ -588,6 +589,12 @@ function renderHomeBody() {
     ...received.filter((n) => state.homeAppunti.includes(noteKey(n))).map((n) => collapsibleCard(sharedAppuntoCard(n), noteKey(n))),
   ];
   if (homeNotes.length) body.append(h('div', { class: 'section-title' }, 'Appunti in evidenza'), ...homeNotes);
+
+  const homeSnippets = state.snippets.filter((s) => s.home);
+  if (homeSnippets.length) {
+    body.append(h('div', { class: 'section-title' }, 'Snippet in evidenza'),
+      h('div', { class: 'snippet-grid' }, homeSnippets.map((s) => snippetCard(s))));
+  }
 
   const homeTasks = asanaState.tasks.filter((t) => state.homeAsana.includes(t.gid));
   if (homeTasks.length) {
@@ -1444,7 +1451,8 @@ function renderSnippets(view) {
   view.append(grid);
   let dragId = null;
   for (const s of state.snippets) {
-    grid.append(h('div', { class: 'card snippet' + (editing ? ' draggable' : ''), draggable: editing ? 'true' : null,
+    grid.append(snippetCard(s, editing && {
+      draggable: 'true',
       ondragstart: (e) => { dragId = s.id; e.dataTransfer.effectAllowed = 'move'; e.currentTarget.classList.add('drag-src'); },
       ondragend: (e) => { dragId = null; e.currentTarget.classList.remove('drag-src'); },
       ondragover: (e) => { if (dragId && dragId !== s.id) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); } },
@@ -1457,17 +1465,22 @@ function renderSnippets(view) {
         const [moved] = state.snippets.splice(from, 1);
         state.snippets.splice(to, 0, moved);
         save(); render();
-      } },
-      h('div', { class: 'card-head' },
-        h('h3', { title: s.title }, s.title),
-        h('button', { class: 'ghost small', onclick: () => copy(s.text) }, 'Copia'),
-        editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => openForm({ title: 'Modifica snippet', fields: snippetFields(s),
-          onSubmit: (v) => { if (!v.title || !v.text) return false; s.title = v.title; s.text = v.text; save(); render(); } }) }, icon('pen')),
-        editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => confirmBox(`Eliminare "${s.title}"?`, () => {
-          state.snippets = state.snippets.filter((x) => x.id !== s.id); save(); render();
-        }) }, icon('xmark'))),
-      h('pre', null, s.text)));
+      } }));
   }
+}
+// drag: attributi per il trascinamento (solo nella sezione Snippet in modalità Modifica)
+function snippetCard(s, drag) {
+  return h('div', { class: 'card snippet' + (drag ? ' draggable' : ''), ...(drag || {}) },
+    h('div', { class: 'card-head' },
+      h('h3', { title: s.title }, s.title),
+      snippetStar(s),
+      h('button', { class: 'ghost small', onclick: () => copy(s.text) }, 'Copia'),
+      editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => openForm({ title: 'Modifica snippet', fields: snippetFields(s),
+        onSubmit: (v) => { if (!v.title || !v.text) return false; s.title = v.title; s.text = v.text; save(); render(); } }) }, icon('pen')),
+      editing && h('button', { class: 'icon', title: 'Elimina', onclick: () => confirmBox(`Eliminare "${s.title}"?`, () => {
+        state.snippets = state.snippets.filter((x) => x.id !== s.id); save(); render();
+      }) }, icon('xmark'))),
+    h('pre', null, s.text));
 }
 
 // ---------- Sezioni dei profili ----------
