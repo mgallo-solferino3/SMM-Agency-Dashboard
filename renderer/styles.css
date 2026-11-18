@@ -217,8 +217,17 @@ button.star-btn.on, button.star-btn.on:hover { color: #f5b301; opacity: 1; }
 .todo .t { flex: 1; }
 .todo input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); }
 .todo-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.todo.has-priority { border-left: 4px solid var(--prio); padding-left: 10px; }
+.todo.done.has-priority { border-left-color: color-mix(in srgb, var(--prio) 35%, transparent); }
+.priority-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+  font-size: 12px; font-weight: 700; color: color-mix(in srgb, var(--prio) 70%, var(--text)); border: 1.5px solid var(--prio);
+  background: color-mix(in srgb, var(--prio) 16%, transparent); }
+.priority-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--prio); box-shadow: 0 0 0 2px color-mix(in srgb, var(--prio) 30%, transparent); }
+.todo.done .priority-badge { opacity: .55; }
 .todo-due { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .todo-due.overdue { color: var(--danger); font-weight: 600; }
+.todo-sort { align-items: center; }
+.todo-sort > span { font-size: 12px; color: var(--muted); margin-right: 2px; }
 .todo-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
 .todo-form .row > input[type=date], .todo-form .row > select { flex: 0 0 auto; width: auto; }
 .row { display: flex; gap: 8px; }

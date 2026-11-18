@@ -611,7 +611,7 @@ function renderHomeBody() {
       h('div', { class: 'card records' }, homeTasks.map((t) => asanaRow(t))));
   }
 
-  const open = state.todos.filter((t) => !t.done).slice(0, 5);
+  const open = sortTodos(state.todos.filter((t) => !t.done)).slice(0, 5);
   body.append(h('div', { class: 'section-title' }, 'To-do aperti'));
   body.append(open.length
     ? h('div', { class: 'card' }, open.map((t) => todoRow(t, renderHomeBody)))
@@ -879,11 +879,26 @@ function confetti(from) {
 }
 
 const TODO_PRIORITIES = [
-  { id: 'alta', label: 'Alta', tone: 'tone-ko' },
-  { id: 'media', label: 'Media', tone: 'tone-progress' },
-  { id: 'bassa', label: 'Bassa', tone: 'tone-neutral' },
+  { id: 'alta', label: 'Alta', dot: '#e5484d', emoji: '🔴' },
+  { id: 'media', label: 'Media', dot: '#e0b000', emoji: '🟡' },
+  { id: 'bassa', label: 'Bassa', dot: '#30a46c', emoji: '🟢' },
 ];
 const todoPriority = (id) => TODO_PRIORITIES.find((p) => p.id === id);
+// Ordinamento dei to-do scelto nella sezione (resta salvato): inserimento, scadenza o priorità.
+// Senza scadenza o priorità finiscono in fondo; a parità decide l'altro criterio.
+const TODO_SORTS = [
+  { id: 'recenti', label: 'Più recenti' },
+  { id: 'scadenza', label: 'Scadenza' },
+  { id: 'priorita', label: 'Priorità' },
+];
+function sortTodos(list) {
+  const byDue = (a, b) => (a.due || '9999').localeCompare(b.due || '9999');
+  const rank = (t) => { const i = TODO_PRIORITIES.findIndex((p) => p.id === t.priority); return i < 0 ? TODO_PRIORITIES.length : i; };
+  const byPriority = (a, b) => rank(a) - rank(b);
+  if (state.todoSort === 'scadenza') return [...list].sort((a, b) => byDue(a, b) || byPriority(a, b));
+  if (state.todoSort === 'priorita') return [...list].sort((a, b) => byPriority(a, b) || byDue(a, b));
+  return list;
+}
 // Rubrica clienti: ogni cliente usato in un to-do viene ricordato per proporlo le volte successive
 function rememberCliente(name) {
   name = name.trim();
@@ -898,10 +913,11 @@ function todoRow(t, rerender) {
   const overdue = !t.done && t.due && t.due < todayISO();
   const meta = [
     t.client && h('span', { class: 'project-tag', style: '--tag: var(--accent); margin-left:0' }, t.client),
-    p && h('span', { class: `status ${p.tone}` }, p.label),
+    p && h('span', { class: 'priority-badge', title: `Priorità ${p.label.toLowerCase()}` }, h('span', { class: 'priority-dot' }), p.label),
     t.due && h('span', { class: 'todo-due' + (overdue ? ' overdue' : '') }, (overdue ? 'Scaduto il ' : 'Entro il ') + formatDate(t.due)),
   ].filter(Boolean);
-  return h('div', { class: 'todo' + (t.done ? ' done' : '') },
+  // Il colore della priorità segna anche il bordo sinistro della riga
+  return h('div', { class: 'todo' + (t.done ? ' done' : '') + (p ? ' has-priority' : ''), style: p ? `--prio:${p.dot}` : null },
     h('input', { type: 'checkbox', checked: t.done, onchange: (e) => {
       t.done = e.target.checked;
       if (t.done) confetti(e.target);
@@ -916,7 +932,7 @@ function renderTodos(view) {
     onkeydown: (e) => { if (e.key === 'Enter') add(); } });
   const dueInput = h('input', { type: 'date', title: 'Scadenza' });
   const prioritySelect = h('select', { title: 'Priorità' },
-    TODO_PRIORITIES.map((p) => h('option', { value: p.id, selected: p.id === 'media' }, `Priorità ${p.label.toLowerCase()}`)));
+    TODO_PRIORITIES.map((p) => h('option', { value: p.id, selected: p.id === 'media' }, `${p.emoji} Priorità ${p.label.toLowerCase()}`)));
   const clientInput = h('input', { type: 'text', list: 'todo-clienti', placeholder: 'Cliente', title: 'Scegli un cliente salvato o scrivine uno nuovo',
     onkeydown: (e) => { if (e.key === 'Enter') add(); } });
   function add() {
@@ -933,8 +949,12 @@ function renderTodos(view) {
       h('datalist', { id: 'todo-clienti' }, state.clienti.map((c) => h('option', { value: c }))),
       h('button', { class: 'primary', onclick: add }, 'Aggiungi'))));
 
-  const active = state.todos.filter((t) => !t.done);
-  const archived = state.todos.filter((t) => t.done);
+  const active = sortTodos(state.todos.filter((t) => !t.done));
+  const archived = sortTodos(state.todos.filter((t) => t.done));
+
+  view.append(h('div', { class: 'chips todo-sort' }, h('span', null, 'Ordina per'),
+    TODO_SORTS.map((o) => h('button', { class: 'chip' + (state.todoSort === o.id ? ' active' : ''),
+      onclick: () => { state.todoSort = o.id; save(); render(); } }, o.label))));
 
   const list = h('div', { class: 'card' });
   if (!active.length) list.append(h('div', { class: 'empty' }, 'Nessuna attività.'));
@@ -2952,6 +2972,7 @@ function normalizeState(d) {
     ...normalizeIdee(d),
     todos: Array.isArray(d.todos) ? d.todos : [],
     clienti: normalizeClienti(d),
+    todoSort: ['recenti', 'scadenza', 'priorita'].includes(d.todoSort) ? d.todoSort : 'recenti',
     appunti: [...(Array.isArray(d.appunti) ? d.appunti : []), ...notesAsAppunto(d.notes)],
     homeAppunti: Array.isArray(d.homeAppunti) ? d.homeAppunti : [], // id dei miei appunti, owner/id di quelli ricevuti
     homeAsana: Array.isArray(d.homeAsana) ? d.homeAsana : [],
