@@ -216,6 +216,11 @@ button.star-btn.on, button.star-btn.on:hover { color: #f5b301; opacity: 1; }
 .todo.done .t { text-decoration: line-through; color: var(--muted); }
 .todo .t { flex: 1; }
 .todo input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); }
+.todo-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.todo-due { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.todo-due.overdue { color: var(--danger); font-weight: 600; }
+.todo-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.todo-form .row > input[type=date], .todo-form .row > select { flex: 0 0 auto; width: auto; }
 .row { display: flex; gap: 8px; }
 .row > input { flex: 1; }
 

@@ -536,6 +536,7 @@
     },
     openExternal: async (url) => openExternal(url),
     chromeProfiles: async () => [],
+    browsers: async () => [],
     copy: (text) => copyText(text),
     exportData: async (data) => {
       download(`solferino3-dashboard-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data, null, 2));

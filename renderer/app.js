@@ -364,7 +364,7 @@ const DEFAULT_TOOLS = [
 // Il kit pubblicato dagli admin (account Solferino 3) sostituisce quello incluso nell'app
 const kitTools = () => (cloudState.sharedTools && cloudState.sharedTools.length ? cloudState.sharedTools : DEFAULT_TOOLS);
 function defaultTools() {
-  return kitTools().map((t) => ({ id: uid(), icon: '', chromeProfile: '', ...t }));
+  return kitTools().map((t) => ({ id: uid(), icon: '', chromeProfile: '', browser: '', ...t }));
 }
 
 function seedData() {
@@ -523,16 +523,18 @@ function linkTile(item, { sub, onEdit, onDelete, star } = {}) {
     badge = h('div', { class: 'badge', style: `background:${colorFor(item.label)}` }, (item.label[0] || '?').toUpperCase());
   }
 
-  // Profilo Chrome scelto per lo strumento: si vede sotto il nome
+  // Profilo Chrome o browser scelto per lo strumento: si vede sotto il nome
   const profile = item.chromeProfile && chromeProfileOf(item);
-  const open = () => window.api.openExternal(normalizeUrl(item.url), item.chromeProfile || '');
+  const browser = !profile && item.browser && browserOf(item);
+  const open = () => window.api.openExternal(normalizeUrl(item.url), item.chromeProfile || '', item.browser || '');
   const tile = h('div', { class: 'link-tile', role: 'button', tabindex: '0',
     onclick: (e) => { if (e.target.closest('.tile-actions, .star-btn')) return; open(); },
     onkeydown: (e) => { if (e.key === 'Enter') open(); },
-    title: profile ? `${item.url}\nSi apre con il profilo Chrome "${profileLabel(profile)}"` : item.url },
+    title: profile ? `${item.url}\nSi apre con il profilo Chrome "${profileLabel(profile)}"`
+      : browser ? `${item.url}\nSi apre con ${browser.name}` : item.url },
     badge,
     h('div', { class: 'meta' }, h('div', { class: 'name' }, item.label),
-      h('div', { class: 'sub' }, [sub || hostOf(item.url), profile && `👤 ${profile.name}`].filter(Boolean).join(' · '))),
+      h('div', { class: 'sub' }, [sub || hostOf(item.url), profile && `👤 ${profile.name}`, browser && `🌐 ${browser.name}`].filter(Boolean).join(' · '))),
     star,
     (onEdit || onDelete) && h('div', { class: 'tile-actions' },
       onEdit && h('button', { class: 'icon', title: 'Modifica', onclick: onEdit }, icon('pen')),
@@ -628,11 +630,26 @@ function linkFields(l = {}) {
 let chromeProfiles = [];
 const profileLabel = (p) => (p.email && p.email !== p.name ? `${p.name} — ${p.email}` : p.name);
 const chromeProfileOf = (item) => chromeProfiles.find((p) => p.dir === item.chromeProfile);
+// Browser installati (letti all'avvio, solo app desktop): uno strumento può aprirsi sempre con un certo browser
+let browsers = [];
+const browserOf = (item) => browsers.find((b) => b.id === item.browser);
+
+// Un solo menu "Apri con": browser predefinito, un browser installato o un profilo di Chrome.
+// Il valore è 'browser:<id>' o 'chrome:<cartella>'; setOpenWith lo riporta nei campi browser/chromeProfile.
+// Senza il menu (versione web) v è undefined e la scelta fatta sul desktop resta com'è.
+const openWithValue = (t) => (t.chromeProfile ? `chrome:${t.chromeProfile}` : t.browser ? `browser:${t.browser}` : '');
+function setOpenWith(t, v) {
+  if (v === undefined) return t;
+  t.chromeProfile = v.startsWith('chrome:') ? v.slice(7) : '';
+  t.browser = v.startsWith('browser:') ? v.slice(8) : '';
+  return t;
+}
 
 function toolFields(t = {}) {
-  const profileField = chromeProfiles.length > 0 && { name: 'chromeProfile', type: 'select', label: 'Apri con il profilo Chrome',
-    value: t.chromeProfile || '', options: [{ value: '', label: 'Quello già aperto (predefinito)' },
-      ...chromeProfiles.map((p) => ({ value: p.dir, label: profileLabel(p) }))] };
+  const profileField = (browsers.length > 0 || chromeProfiles.length > 0) && { name: 'openWith', type: 'select', label: 'Apri con',
+    value: openWithValue(t), options: [{ value: '', label: 'Browser predefinito' },
+      ...browsers.map((b) => ({ value: `browser:${b.id}`, label: b.name })),
+      ...chromeProfiles.map((p) => ({ value: `chrome:${p.dir}`, label: `Google Chrome — profilo ${profileLabel(p)}` }))] };
   return [
     !IS_WEB && { name: 'app', type: 'app', label: `${APP_KIND} (facoltativo)`, value: isAppUrl(t.url) ? appUrlToPath(t.url) : '' },
     ...linkFields(t),
@@ -646,8 +663,8 @@ function renderLinkSection(view, key, { addLabel, singular, tab }) {
     h('button', { class: 'primary', onclick: () => openForm({ title: `Nuovo ${singular}`, fields: toolFields(),
       onSubmit: (v) => {
         if (!v.label || !v.url) return false;
-        state[key].push({ id: uid(), label: v.label, url: normalizeUrl(v.url), category: v.category || 'Altro', icon: v.icon || '', chromeProfile: v.chromeProfile || '',
-          ...(tab ? { tab } : {}) });
+        state[key].push(setOpenWith({ id: uid(), label: v.label, url: normalizeUrl(v.url), category: v.category || 'Altro', icon: v.icon || '',
+          ...(tab ? { tab } : {}) }, v.openWith));
         save(); render();
       } }) }, `+ ${addLabel}`)));
   const list = tab ? state[key].filter((t) => t.tab === tab) : state[key];
@@ -661,7 +678,7 @@ function renderLinkSection(view, key, { addLabel, singular, tab }) {
           onSubmit: (v) => {
             if (!v.label || !v.url) return false;
             t.label = v.label; t.url = normalizeUrl(v.url); t.category = v.category || 'Altro'; t.icon = v.icon || '';
-            t.chromeProfile = v.chromeProfile || ''; save(); render();
+            setOpenWith(t, v.openWith); save(); render();
           } }),
         onDelete: () => { state[key] = state[key].filter((x) => x.id !== t.id); save(); render(); },
         star: key === 'tools' && toolStar(t),
@@ -861,7 +878,29 @@ function confetti(from) {
   requestAnimationFrame(frame);
 }
 
+const TODO_PRIORITIES = [
+  { id: 'alta', label: 'Alta', tone: 'tone-ko' },
+  { id: 'media', label: 'Media', tone: 'tone-progress' },
+  { id: 'bassa', label: 'Bassa', tone: 'tone-neutral' },
+];
+const todoPriority = (id) => TODO_PRIORITIES.find((p) => p.id === id);
+// Rubrica clienti: ogni cliente usato in un to-do viene ricordato per proporlo le volte successive
+function rememberCliente(name) {
+  name = name.trim();
+  if (name && !state.clienti.some((c) => c.toLowerCase() === name.toLowerCase())) {
+    state.clienti.push(name);
+    state.clienti.sort((a, b) => a.localeCompare(b, 'it'));
+  }
+}
+
 function todoRow(t, rerender) {
+  const p = todoPriority(t.priority);
+  const overdue = !t.done && t.due && t.due < todayISO();
+  const meta = [
+    t.client && h('span', { class: 'project-tag', style: '--tag: var(--accent); margin-left:0' }, t.client),
+    p && h('span', { class: `status ${p.tone}` }, p.label),
+    t.due && h('span', { class: 'todo-due' + (overdue ? ' overdue' : '') }, (overdue ? 'Scaduto il ' : 'Entro il ') + formatDate(t.due)),
+  ].filter(Boolean);
   return h('div', { class: 'todo' + (t.done ? ' done' : '') },
     h('input', { type: 'checkbox', checked: t.done, onchange: (e) => {
       t.done = e.target.checked;
@@ -869,17 +908,30 @@ function todoRow(t, rerender) {
       save(); rerender();
     } }),
     h('span', { class: 't' }, t.text),
+    meta.length > 0 && h('span', { class: 'todo-meta' }, meta),
     h('button', { class: 'icon', title: 'Elimina', onclick: () => { state.todos = state.todos.filter((x) => x.id !== t.id); save(); rerender(); } }, icon('xmark')));
 }
 function renderTodos(view) {
-  const input = h('input', { type: 'text', placeholder: 'Nuova attività… (Invio per aggiungere)',
-    onkeydown: (e) => {
-      if (e.key === 'Enter' && e.target.value.trim()) {
-        state.todos.unshift({ id: uid(), text: e.target.value.trim(), done: false });
-        save(); render(); $('#view input[type=text]').focus();
-      }
-    } });
-  view.append(h('div', { class: 'row', style: 'margin-bottom:14px' }, input));
+  const textInput = h('input', { type: 'text', placeholder: 'Nuova attività… (Invio per aggiungere)',
+    onkeydown: (e) => { if (e.key === 'Enter') add(); } });
+  const dueInput = h('input', { type: 'date', title: 'Scadenza' });
+  const prioritySelect = h('select', { title: 'Priorità' },
+    TODO_PRIORITIES.map((p) => h('option', { value: p.id, selected: p.id === 'media' }, `Priorità ${p.label.toLowerCase()}`)));
+  const clientInput = h('input', { type: 'text', list: 'todo-clienti', placeholder: 'Cliente', title: 'Scegli un cliente salvato o scrivine uno nuovo',
+    onkeydown: (e) => { if (e.key === 'Enter') add(); } });
+  function add() {
+    const text = textInput.value.trim();
+    if (!text) { textInput.focus(); return; }
+    const client = clientInput.value.trim();
+    rememberCliente(client);
+    state.todos.unshift({ id: uid(), text, done: false, due: dueInput.value, priority: prioritySelect.value, client });
+    save(); render(); $('#view .todo-form input[type=text]').focus();
+  }
+  view.append(h('div', { class: 'todo-form' },
+    textInput,
+    h('div', { class: 'row' }, dueInput, prioritySelect, clientInput,
+      h('datalist', { id: 'todo-clienti' }, state.clienti.map((c) => h('option', { value: c }))),
+      h('button', { class: 'primary', onclick: add }, 'Aggiungi'))));
 
   const active = state.todos.filter((t) => !t.done);
   const archived = state.todos.filter((t) => t.done);
@@ -2899,6 +2951,7 @@ function normalizeState(d) {
     tools: Array.isArray(d.tools) ? d.tools : [],
     ...normalizeIdee(d),
     todos: Array.isArray(d.todos) ? d.todos : [],
+    clienti: normalizeClienti(d),
     appunti: [...(Array.isArray(d.appunti) ? d.appunti : []), ...notesAsAppunto(d.notes)],
     homeAppunti: Array.isArray(d.homeAppunti) ? d.homeAppunti : [], // id dei miei appunti, owner/id di quelli ricevuti
     homeAsana: Array.isArray(d.homeAsana) ? d.homeAsana : [],
@@ -2915,6 +2968,14 @@ function normalizeState(d) {
     pixiesetSheet: { url: '', syncedAt: 0, error: '', ...(d.pixiesetSheet && typeof d.pixiesetSheet === 'object' ? d.pixiesetSheet : {}) },
     settings: normalizeSettings(d.settings),
   };
+}
+
+// Rubrica clienti dei to-do: nomi unici, più quelli già usati nei to-do esistenti
+function normalizeClienti(d) {
+  const names = [...(Array.isArray(d.clienti) ? d.clienti : []), ...(Array.isArray(d.todos) ? d.todos.map((t) => t && t.client) : [])];
+  const seen = new Map();
+  for (const n of names) if (typeof n === 'string' && n.trim() && !seen.has(n.trim().toLowerCase())) seen.set(n.trim().toLowerCase(), n.trim());
+  return [...seen.values()].sort((a, b) => a.localeCompare(b, 'it'));
 }
 
 // Fino alla 1.17 c'era la sezione Note (testo libero in d.notes): il testo diventa un appunto.
@@ -3001,6 +3062,7 @@ async function boot() {
     }
   });
   chromeProfiles = await window.api.chromeProfiles();
+  browsers = await window.api.browsers();
   asanaState = await window.api.asanaGet();
   window.api.onAsana(onAsanaUpdate);
   cloudState = await window.api.cloudGet();

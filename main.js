@@ -58,6 +58,43 @@ function openInChromeProfile(profileDir, url) {
   return false;
 }
 
+// Browser che si possono scegliere per aprire uno strumento (solo quelli installati)
+const BROWSERS = [
+  { id: 'safari', name: 'Safari', mac: 'Safari' },
+  { id: 'chrome', name: 'Google Chrome', mac: 'Google Chrome', win: ['Google/Chrome/Application/chrome.exe'] },
+  { id: 'firefox', name: 'Firefox', mac: 'Firefox', win: ['Mozilla Firefox/firefox.exe'] },
+  { id: 'edge', name: 'Microsoft Edge', mac: 'Microsoft Edge', win: ['Microsoft/Edge/Application/msedge.exe'] },
+  { id: 'brave', name: 'Brave', mac: 'Brave Browser', win: ['BraveSoftware/Brave-Browser/Application/brave.exe'] },
+  { id: 'arc', name: 'Arc', mac: 'Arc' },
+  { id: 'dia', name: 'Dia', mac: 'Dia' },
+  { id: 'opera', name: 'Opera', mac: 'Opera', win: ['Programs/Opera/opera.exe'] },
+  { id: 'vivaldi', name: 'Vivaldi', mac: 'Vivaldi', win: ['Vivaldi/Application/vivaldi.exe'] },
+  { id: 'orion', name: 'Orion', mac: 'Orion' },
+  { id: 'zen', name: 'Zen', mac: 'Zen' },
+];
+// Percorso dell'app/eseguibile del browser, o null se non è installato
+function browserPath(b) {
+  if (IS_MAC) {
+    if (!b.mac) return null;
+    return [`/Applications/${b.mac}.app`, path.join(app.getPath('home'), 'Applications', `${b.mac}.app`)].find((p) => fs.existsSync(p)) || null;
+  }
+  if (!IS_WIN || !b.win) return null;
+  const roots = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA].filter(Boolean);
+  for (const root of roots) for (const rel of b.win) {
+    const p = path.join(root, ...rel.split('/'));
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+function openInBrowser(browserId, url) {
+  const b = BROWSERS.find((x) => x.id === browserId);
+  const p = b && browserPath(b);
+  if (!p) return false;
+  if (IS_MAC) execFile('open', ['-a', p, url]);
+  else execFile(p, [url]);
+  return true;
+}
+
 const DATA_FILE = () => path.join(app.getPath('userData'), 'dashboard-data.json');
 let win;
 
@@ -315,11 +352,13 @@ function findAppByName(name) {
 }
 
 // chromeProfile: cartella del profilo Chrome scelto per lo strumento (vince sulle app desktop)
-function openExternalSafe(url, chromeProfile = '') {
+// browser: id del browser scelto per lo strumento (vedi BROWSERS), anche questo vince sulle app desktop
+function openExternalSafe(url, chromeProfile = '', browser = '') {
   try {
     const u = new URL(url);
     const isWeb = u.protocol === 'http:' || u.protocol === 'https:';
     if (chromeProfile && isWeb && readChromeProfiles()[chromeProfile] && openInChromeProfile(chromeProfile, u.toString())) return true;
+    if (browser && isWeb && openInBrowser(browser, u.toString())) return true;
     // Scorciatoia a un'app (file:///Applications/Nome.app o file:///C:/…/Nome.lnk)
     if (u.protocol === 'file:') {
       const appPath = fileURLToPath(u);
@@ -369,7 +408,10 @@ ipcMain.handle('data:save', (_e, data) => {
   return true;
 });
 
-ipcMain.handle('open:external', (_e, url, chromeProfile) => openExternalSafe(String(url), String(chromeProfile || '')));
+ipcMain.handle('open:external', (_e, url, chromeProfile, browser) => openExternalSafe(String(url), String(chromeProfile || ''), String(browser || '')));
+
+// Browser installati, per la scelta nel modulo degli strumenti
+ipcMain.handle('browsers:list', () => BROWSERS.filter((b) => browserPath(b)).map((b) => ({ id: b.id, name: b.name })));
 
 // Profili di Chrome per la scelta nel modulo degli strumenti, con l'email dell'account se c'è
 ipcMain.handle('chrome:profiles', () => Object.entries(readChromeProfiles())
