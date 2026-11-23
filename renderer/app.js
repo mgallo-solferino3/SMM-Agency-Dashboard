@@ -195,6 +195,11 @@ function openForm({ title, fields, submitLabel = 'Salva', onSubmit }) {
       iconSetters[f.name] = icon.set;
       form.append(h('div', { class: 'field' }, h('span', null, f.label), icon.el));
       continue;
+    } else if (f.suggestions) {
+      // Testo libero con proposte (es. i clienti della rubrica)
+      const listId = `form-${f.name}-list`;
+      input = h('input', { type: 'text', value: f.value || '', placeholder: f.placeholder || '', list: listId });
+      form.append(h('datalist', { id: listId }, f.suggestions.map((s) => h('option', { value: s }))));
     } else input = h('input', { type: 'text', value: f.value || '', placeholder: f.placeholder || '' });
     inputs[f.name] = input;
     form.append(h('label', { class: 'field' }, h('span', null, f.label), input));
@@ -691,6 +696,8 @@ function renderTools(view) {
 
 // --- IDEE: schede a piacere, di due tipi: link (come Strumenti) o siti con anteprima
 // Le schede stanno in state.ideeTabs; link e siti in state.ideaLinks / state.sites con il campo tab.
+// Una scheda può appartenere a un cliente (campo client): sono le raccolte di reference, es. per un restyling.
+// Il menu nella barra sceglie quali schede vedere: le generali (client vuoto) o quelle di un cliente.
 const IDEE_TAB_TYPES = [
   { value: 'links', label: 'Link' },
   { value: 'sites', label: 'Siti con anteprima' },
@@ -701,32 +708,60 @@ const DEFAULT_IDEE_TABS = [
   { id: 'sites', label: 'Siti belli', type: 'sites' },
 ];
 let ideeTab = 'libraries';
+let ideeClient = ''; // cliente delle schede mostrate ('' = schede generali)
 const capturingIds = new Set();
 
-const currentIdeeTab = () => state.ideeTabs.find((t) => t.id === ideeTab) || state.ideeTabs[0];
+const sameClient = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+const ideeClients = () => {
+  const seen = new Map();
+  for (const t of state.ideeTabs) if (t.client && !seen.has(t.client.toLowerCase())) seen.set(t.client.toLowerCase(), t.client);
+  return [...seen.values()].sort((a, b) => a.localeCompare(b, 'it'));
+};
+const visibleIdeeTabs = () => state.ideeTabs.filter((t) => sameClient(t.client, ideeClient));
+function currentIdeeTab() {
+  // Se il cliente scelto non ha più schede (o non ci sono generali) passa a quelle della prima scheda
+  if (!visibleIdeeTabs().length) ideeClient = state.ideeTabs[0].client || '';
+  const tabs = visibleIdeeTabs();
+  return tabs.find((t) => t.id === ideeTab) || tabs[0];
+}
 const ideeTabItems = (t) => (t.type === 'sites' ? state.sites : state.ideaLinks).filter((x) => x.tab === t.id);
 
-function addIdeeTab() {
-  openForm({ title: 'Nuova scheda', submitLabel: 'Aggiungi',
+function ideeClientField(value) {
+  return { name: 'client', label: 'Cliente (facoltativo)', value, suggestions: state.clienti,
+    placeholder: 'Vuoto = scheda generale; es. Rossi Srl per le reference del restyling' };
+}
+
+// client: cliente proposto nel modulo (quello delle schede mostrate); requireClient per "Nuova raccolta cliente"
+function addIdeeTab({ client = ideeClient, requireClient = false } = {}) {
+  openForm({ title: requireClient ? 'Nuova raccolta per un cliente' : 'Nuova scheda', submitLabel: 'Aggiungi',
     fields: [
-      { name: 'label', label: 'Nome', placeholder: 'Es. Ispirazioni' },
-      { name: 'type', label: 'Contenuto', type: 'select', value: 'links', options: IDEE_TAB_TYPES },
+      requireClient && { ...ideeClientField(''), label: 'Cliente', placeholder: 'Es. Rossi Srl' },
+      { name: 'label', label: 'Nome', value: requireClient ? 'Reference' : '', placeholder: 'Es. Ispirazioni' },
+      // Per un cliente di solito servono i siti di riferimento con l'anteprima
+      { name: 'type', label: 'Contenuto', type: 'select', value: client || requireClient ? 'sites' : 'links', options: IDEE_TAB_TYPES },
+      !requireClient && ideeClientField(client),
     ],
     onSubmit: (v) => {
-      if (!v.label) return false;
-      const t = { id: uid(), label: v.label, type: v.type === 'sites' ? 'sites' : 'links' };
+      if (!v.label || (requireClient && !v.client)) return false;
+      const t = { id: uid(), label: v.label, type: v.type === 'sites' ? 'sites' : 'links', client: v.client };
+      rememberCliente(v.client);
       state.ideeTabs.push(t);
       ideeTab = t.id;
+      ideeClient = t.client;
       save(); render();
     } });
 }
 
-function renameIdeeTab(t) {
-  openForm({ title: 'Rinomina scheda', submitLabel: 'Salva',
-    fields: [{ name: 'label', label: 'Nome', value: t.label }],
+function editIdeeTab(t) {
+  openForm({ title: 'Modifica scheda', submitLabel: 'Salva',
+    fields: [{ name: 'label', label: 'Nome', value: t.label }, ideeClientField(t.client)],
     onSubmit: (v) => {
       if (!v.label) return false;
-      t.label = v.label; save(); render();
+      t.label = v.label;
+      t.client = v.client;
+      rememberCliente(v.client);
+      ideeClient = t.client; // la scheda resta in vista anche se cambia cliente
+      save(); render();
     } });
 }
 
@@ -737,21 +772,39 @@ function deleteIdeeTab(t) {
     state.ideeTabs = state.ideeTabs.filter((x) => x.id !== t.id);
     if (t.type === 'sites') state.sites = state.sites.filter((x) => x.tab !== t.id);
     else state.ideaLinks = state.ideaLinks.filter((x) => x.tab !== t.id);
-    if (ideeTab === t.id) ideeTab = state.ideeTabs[0].id;
     save(); render();
   });
+}
+
+function ideeClientSelect() {
+  const clients = ideeClients();
+  const count = (c) => state.ideeTabs.filter((t) => sameClient(t.client, c)).length;
+  const select = h('select', { class: 'subtab-client', title: 'Schede generali o raccolte di un cliente',
+    onchange: (e) => {
+      if (e.target.value === '__new__') { e.target.value = ideeClient; return addIdeeTab({ requireClient: true }); }
+      ideeClient = e.target.value;
+      ideeTab = visibleIdeeTabs()[0]?.id;
+      render();
+    } },
+    h('option', { value: '' }, 'Schede generali'),
+    clients.length > 0 && h('optgroup', { label: 'Raccolte per cliente' },
+      clients.map((c) => h('option', { value: c }, `${c} (${count(c)})`))),
+    h('option', { value: '__new__' }, '+ Nuova raccolta cliente…'));
+  select.value = clients.find((c) => sameClient(c, ideeClient)) ?? '';
+  return select;
 }
 
 function renderIdee(view) {
   const cur = currentIdeeTab();
   ideeTab = cur.id;
   view.append(h('div', { class: 'subtabs' },
-    state.ideeTabs.map((t) => h('span', { class: 'subtab-wrap' },
-      h('button', { class: 'subtab' + (t.id === cur.id ? ' active' : ''), title: 'Doppio clic per rinominare',
-        onclick: () => { ideeTab = t.id; render(); }, ondblclick: () => renameIdeeTab(t) }, t.label),
-      editing && h('button', { class: 'icon', title: 'Rinomina', onclick: () => renameIdeeTab(t) }, icon('pen')),
+    ideeClientSelect(),
+    visibleIdeeTabs().map((t) => h('span', { class: 'subtab-wrap' },
+      h('button', { class: 'subtab' + (t.id === cur.id ? ' active' : ''), title: 'Doppio clic per modificare',
+        onclick: () => { ideeTab = t.id; render(); }, ondblclick: () => editIdeeTab(t) }, t.label),
+      editing && h('button', { class: 'icon', title: 'Modifica', onclick: () => editIdeeTab(t) }, icon('pen')),
       editing && state.ideeTabs.length > 1 && h('button', { class: 'icon', title: 'Elimina scheda', onclick: () => deleteIdeeTab(t) }, icon('xmark')))),
-    h('button', { class: 'subtab subtab-add', title: 'Nuova scheda', onclick: addIdeeTab }, '+')));
+    h('button', { class: 'subtab subtab-add', title: ideeClient ? `Nuova scheda per ${ideeClient}` : 'Nuova scheda', onclick: () => addIdeeTab() }, '+')));
   const body = h('div', { class: 'subtab-body' });
   view.append(body);
   if (cur.type === 'sites') renderSites(body, cur.id);
@@ -899,7 +952,7 @@ function sortTodos(list) {
   if (state.todoSort === 'priorita') return [...list].sort((a, b) => byPriority(a, b) || byDue(a, b));
   return list;
 }
-// Rubrica clienti: ogni cliente usato in un to-do viene ricordato per proporlo le volte successive
+// Rubrica clienti: ogni cliente usato in un to-do o in una raccolta di Idee viene ricordato per proporlo le volte successive
 function rememberCliente(name) {
   name = name.trim();
   if (name && !state.clienti.some((c) => c.toLowerCase() === name.toLowerCase())) {
@@ -2991,9 +3044,10 @@ function normalizeState(d) {
   };
 }
 
-// Rubrica clienti dei to-do: nomi unici, più quelli già usati nei to-do esistenti
+// Rubrica clienti (to-do e raccolte di Idee): nomi unici, più quelli già usati nei to-do e nelle schede esistenti
 function normalizeClienti(d) {
-  const names = [...(Array.isArray(d.clienti) ? d.clienti : []), ...(Array.isArray(d.todos) ? d.todos.map((t) => t && t.client) : [])];
+  const names = [...(Array.isArray(d.clienti) ? d.clienti : []), ...(Array.isArray(d.todos) ? d.todos.map((t) => t && t.client) : []),
+    ...(Array.isArray(d.ideeTabs) ? d.ideeTabs.map((t) => t && t.client) : [])];
   const seen = new Map();
   for (const n of names) if (typeof n === 'string' && n.trim() && !seen.has(n.trim().toLowerCase())) seen.set(n.trim().toLowerCase(), n.trim());
   return [...seen.values()].sort((a, b) => a.localeCompare(b, 'it'));
@@ -3011,7 +3065,7 @@ function notesAsAppunto(notes) {
 function normalizeIdee(d) {
   const arr = (v) => (Array.isArray(v) ? v : []);
   const tabs = arr(d.ideeTabs).filter((t) => t && typeof t.id === 'string' && typeof t.label === 'string')
-    .map((t) => ({ id: t.id, label: t.label, type: t.type === 'sites' ? 'sites' : 'links' }));
+    .map((t) => ({ id: t.id, label: t.label, type: t.type === 'sites' ? 'sites' : 'links', client: typeof t.client === 'string' ? t.client.trim() : '' }));
   const hadTabs = tabs.length > 0;
   if (!hadTabs) tabs.push(...DEFAULT_IDEE_TABS.map((t) => ({ ...t })));
   const ideaLinks = [

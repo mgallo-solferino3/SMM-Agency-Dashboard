@@ -192,6 +192,7 @@ button.star-btn.on, button.star-btn.on:hover { color: #f5b301; opacity: 1; }
 .subtab-wrap .subtab { margin-right: 0; }
 .subtab-wrap .icon { padding: 2px 4px; }
 .subtab-add { font-size: 18px; line-height: 1; padding: 6px 8px; }
+.subtabs select.subtab-client { width: auto; max-width: 260px; margin: 0 18px 6px 0; }
 
 .site-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
 .site-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }

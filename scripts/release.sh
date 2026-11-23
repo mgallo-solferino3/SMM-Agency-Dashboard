@@ -75,6 +75,11 @@ gh release create "$TAG" --target main --title "$NAME $VERSION" \
 
 echo "✓ Pubblicata: $(gh release view "$TAG" --json url -q .url)"
 
+# In dist/ tengo solo i pacchetti di questa versione: le precedenti restano scaricabili dalle release GitHub
+echo "→ Elimino da dist/ i .dmg e gli .exe delle versioni precedenti"
+find dist -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.dmg.blockmap' -o -name '*.exe.blockmap' \) \
+  ! -name "*-$VERSION-*" ! -name "* $VERSION.exe*" -delete
+
 # Versione web (servita dal Worker Cloudflare): stessa interfaccia della release appena pubblicata
 echo "→ Aggiorno la versione web"
 (cd cloud && npm run deploy --silent) || echo "⚠ Versione web non aggiornata: esegui 'cd cloud && npm run deploy'"
