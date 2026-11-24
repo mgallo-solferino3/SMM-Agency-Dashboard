@@ -81,6 +81,7 @@ Le sezioni qui sopra ci sono per tutti. Il profilo scelto nelle Impostazioni agg
 | Fotografo | Shooting, Pixieset |
 | Commerciale | Preventivo veloce (costo orario, margine, sconto, IVA, mensile/annuale, scorporo) |
 | Project Manager | Progetti, Scadenze |
+| Web Developer | Siti web (cliente, indirizzo, piattaforma, hosting, stato), Rinnovi (domini, hosting, SSL, licenze con scadenza) |
 
 Nelle Impostazioni, sotto **Strumenti**, si possono attivare con una spunta anche gli strumenti degli altri profili (es. un Social Media Manager può aggiungere Palette colori e Font): compaiono nel menu sotto **Altri strumenti**.
 

@@ -411,6 +411,8 @@ const PROFILE_PAGES = {
   preventivo: { label: 'Preventivo veloce', icon: 'file-invoice' },
   progetti: { label: 'Progetti', icon: 'folder-open' },
   scadenze: { label: 'Scadenze', icon: 'hourglass-half' },
+  sitiweb: { label: 'Siti web', icon: 'globe' },
+  rinnovi: { label: 'Rinnovi', icon: 'calendar-check' },
 };
 const PROFILES = [
   { id: 'smm', label: 'Social Media Manager', icon: 'hashtag', pages: ['utm', 'calendario'] },
@@ -418,6 +420,7 @@ const PROFILES = [
   { id: 'fotografo', label: 'Fotografo', icon: 'camera-retro', pages: ['shooting', 'pixieset'] },
   { id: 'commerciale', label: 'Commerciale', icon: 'briefcase', pages: ['preventivo'] },
   { id: 'pm', label: 'Project Manager', icon: 'list-check', pages: ['progetti', 'scadenze'] },
+  { id: 'webdev', label: 'Web Developer', icon: 'code', pages: ['sitiweb', 'rinnovi'] },
 ];
 const SETTINGS_PAGE = { id: 'settings', label: 'Impostazioni', icon: 'gear' };
 const EDITABLE = new Set(['tools', 'idee', 'snippets', 'appunti', 'palette', 'pixieset']);
@@ -1864,6 +1867,35 @@ const RECORD_TYPES = {
       { name: 'notes', label: 'Note', type: 'textarea' },
     ],
     statuses: [st('Da fare', 'neutral'), st('In corso', 'progress'), st('Fatto', 'done')],
+  },
+  sitiweb: {
+    singular: 'sito', addLabel: 'Nuovo sito', empty: 'Nessun sito.',
+    titleField: 'name', groupBy: 'status', urlField: 'url',
+    meta: ['client', 'cms', 'hosting'],
+    fields: [
+      { name: 'name', label: 'Nome del sito', required: true, placeholder: 'Es. Sito istituzionale' },
+      { name: 'client', label: 'Cliente' },
+      { name: 'url', label: 'Indirizzo', type: 'url', placeholder: 'https://…' },
+      { name: 'cms', label: 'Piattaforma', type: 'select', options: ['WordPress', 'WooCommerce', 'Shopify', 'Webflow', 'Statico', 'Su misura', 'Altro'] },
+      { name: 'hosting', label: 'Hosting', placeholder: 'Es. SiteGround, Cloudflare…' },
+      { name: 'status', label: 'Stato', type: 'status' },
+      { name: 'notes', label: 'Note (pannello admin, staging, plugin… niente password)', type: 'textarea', rows: 5 },
+    ],
+    statuses: [st('In sviluppo', 'progress'), st('Online', 'done'), st('In manutenzione', 'info'), st('Dismesso', 'ko')],
+  },
+  rinnovi: {
+    singular: 'rinnovo', addLabel: 'Nuovo rinnovo', empty: 'Nessun rinnovo.',
+    titleField: 'title', dateField: 'date', groupBy: 'month', upcoming: true,
+    meta: ['kind', 'site'],
+    fields: [
+      { name: 'date', label: 'Scadenza', type: 'date', required: true },
+      { name: 'title', label: 'Cosa', required: true, placeholder: 'Es. Dominio cliente.it' },
+      { name: 'kind', label: 'Tipo', type: 'select', options: ['Dominio', 'Hosting', 'Certificato SSL', 'Licenza plugin/tema', 'Manutenzione', 'Altro'] },
+      { name: 'site', label: 'Sito o cliente' },
+      { name: 'status', label: 'Stato', type: 'status' },
+      { name: 'notes', label: 'Note', type: 'textarea' },
+    ],
+    statuses: [st('Da rinnovare', 'neutral'), st('Avvisato il cliente', 'info'), st('Rinnovato', 'done')],
   },
   palette: {
     singular: 'palette', addLabel: 'Nuova palette', empty: 'Nessuna palette.',
