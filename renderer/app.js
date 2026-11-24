@@ -3006,7 +3006,7 @@ function renderSettings(view) {
       fileInput),
     h('div', { class: 'hint' }, IS_WEB ? 'L\'icona cambia nella scheda del browser.' : IS_WIN
       ? 'L\'icona cambia nella barra delle applicazioni e nel widget. Il collegamento sul Desktop e nel menu Start mantiene quella predefinita.'
-      : 'L\'icona cambia nel Dock e nel widget mentre l\'app è aperta. Nel Finder e nel Launchpad resta quella predefinita.'));
+      : 'L\'icona cambia nel Dock, nel Finder e nel widget, e resta anche ad app chiusa.'));
 }
 
 // ---------- Aggiornamenti ----------

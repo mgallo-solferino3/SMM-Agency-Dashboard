@@ -178,6 +178,28 @@ function applyIcon(dataUrl) {
   if (IS_MAC && app.dock) app.dock.setIcon(img);
   if (!IS_MAC && win && !win.isDestroyed()) win.setIcon(img);
   if (widgetWin && !widgetWin.isDestroyed()) widgetWin.webContents.send('widget:icon', customIcon);
+  applyBundleIcon(img);
+}
+
+// Mac: app.dock.setIcon vale solo con l'app aperta. Per tenere l'icona anche da chiusa
+// (Dock, Finder, Launchpad) la imposto come icona personalizzata del bundle, come fa
+// "Ottieni informazioni" nel Finder. Rifatto a ogni avvio: un aggiornamento la cancella.
+const BUNDLE_ICON_JXA = 'ObjC.import("AppKit"); function run([bundle, png]) { '
+  + 'const img = png ? $.NSImage.alloc.initWithContentsOfFile(png) : $.nil; '
+  + 'return $.NSWorkspace.sharedWorkspace.setIconForFileOptions(img, bundle, 0); }';
+
+function applyBundleIcon(img) {
+  if (!IS_MAC || !app.isPackaged) return;
+  const bundle = path.resolve(app.getPath('exe'), '..', '..', '..');
+  const png = customIcon ? path.join(os.tmpdir(), `s3-dashboard-icon-${process.pid}.png`) : '';
+  try {
+    if (png) fs.writeFileSync(png, img.toPNG());
+  } catch (_) {
+    return;
+  }
+  execFile('osascript', ['-l', 'JavaScript', '-e', BUNDLE_ICON_JXA, bundle, png], () => {
+    if (png) fs.rm(png, { force: true }, () => {});
+  });
 }
 
 function createWindow() {
