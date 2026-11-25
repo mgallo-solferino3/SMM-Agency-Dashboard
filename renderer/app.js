@@ -175,6 +175,7 @@ function openForm({ title, fields, submitLabel = 'Salva', onSubmit }) {
   dlg.innerHTML = '';
   const inputs = {};
   const iconSetters = {};
+  const showIfs = [];
   const form = h('form', { method: 'dialog' }, h('h2', null, title));
   for (const f of fields.filter(Boolean)) {
     let input;
@@ -202,8 +203,15 @@ function openForm({ title, fields, submitLabel = 'Salva', onSubmit }) {
       form.append(h('datalist', { id: listId }, f.suggestions.map((s) => h('option', { value: s }))));
     } else input = h('input', { type: 'text', value: f.value || '', placeholder: f.placeholder || '' });
     inputs[f.name] = input;
-    form.append(h('label', { class: 'field' }, h('span', null, f.label), input));
+    const wrap = h('label', { class: 'field' }, h('span', null, f.label), input);
+    if (f.showIf) showIfs.push([wrap, f.showIf]);
+    form.append(wrap);
   }
+  // Campi che compaiono solo con certi valori degli altri (es. l'account Google solo se il browser è Chrome)
+  const formValues = () => Object.fromEntries(Object.entries(inputs).map(([k, el]) => [k, el.value.trim()]));
+  const refreshShown = () => { const v = formValues(); for (const [w, fn] of showIfs) w.hidden = !fn(v); };
+  form.addEventListener('change', refreshShown);
+  refreshShown();
   const cancel = h('button', { type: 'button', class: 'ghost', onclick: () => dlg.close() }, 'Annulla');
   const ok = h('button', { type: 'submit', class: 'primary' }, submitLabel);
   form.append(h('div', { class: 'modal-actions' }, cancel, ok));
@@ -642,25 +650,30 @@ const chromeProfileOf = (item) => chromeProfiles.find((p) => p.dir === item.chro
 let browsers = [];
 const browserOf = (item) => browsers.find((b) => b.id === item.browser);
 
-// Un solo menu "Apri con": browser predefinito, un browser installato o un profilo di Chrome.
-// Il valore è 'browser:<id>' o 'chrome:<cartella>'; setOpenWith lo riporta nei campi browser/chromeProfile.
-// Senza il menu (versione web) v è undefined e la scelta fatta sul desktop resta com'è.
-const openWithValue = (t) => (t.chromeProfile ? `chrome:${t.chromeProfile}` : t.browser ? `browser:${t.browser}` : '');
-function setOpenWith(t, v) {
-  if (v === undefined) return t;
-  t.chromeProfile = v.startsWith('chrome:') ? v.slice(7) : '';
-  t.browser = v.startsWith('browser:') ? v.slice(8) : '';
+// Due menu: il browser con cui aprire lo strumento e, se è Google Chrome, l'account Google (profilo Chrome).
+// Il profilo vince sul browser (apre sempre Chrome con quell'account).
+// Senza i menu (versione web) i valori sono undefined e la scelta fatta sul desktop resta com'è.
+function setOpenWith(t, browser, profile) {
+  if (browser === undefined) return t;
+  t.browser = browser;
+  t.chromeProfile = browser === 'chrome' ? (profile || '') : '';
   return t;
 }
 
 function toolFields(t = {}) {
-  const profileField = (browsers.length > 0 || chromeProfiles.length > 0) && { name: 'openWith', type: 'select', label: 'Apri con',
-    value: openWithValue(t), options: [{ value: '', label: 'Browser predefinito' },
-      ...browsers.map((b) => ({ value: `browser:${b.id}`, label: b.name })),
-      ...chromeProfiles.map((p) => ({ value: `chrome:${p.dir}`, label: `Google Chrome — profilo ${profileLabel(p)}` }))] };
+  // Chrome si può scegliere anche se non è stato trovato fra le app, purché ci siano i suoi profili
+  const browserOpts = browsers.some((b) => b.id === 'chrome') || !chromeProfiles.length
+    ? browsers : [...browsers, { id: 'chrome', name: 'Google Chrome' }];
+  const browserField = browserOpts.length > 0 && { name: 'browser', type: 'select', label: 'Apri con il browser',
+    value: t.chromeProfile ? 'chrome' : t.browser || '',
+    options: [{ value: '', label: 'Browser predefinito' }, ...browserOpts.map((b) => ({ value: b.id, label: b.name }))] };
+  const profileField = chromeProfiles.length > 0 && { name: 'chromeProfile', type: 'select', label: 'Account Google (profilo Chrome)',
+    value: t.chromeProfile || '', showIf: (v) => v.browser === 'chrome',
+    options: [{ value: '', label: 'Quello già aperto (predefinito)' }, ...chromeProfiles.map((p) => ({ value: p.dir, label: profileLabel(p) }))] };
   return [
     !IS_WEB && { name: 'app', type: 'app', label: `${APP_KIND} (facoltativo)`, value: isAppUrl(t.url) ? appUrlToPath(t.url) : '' },
     ...linkFields(t),
+    browserField,
     profileField,
     { name: 'category', label: 'Categoria', value: t.category || '', placeholder: 'Es. Marketing' },
     { name: 'icon', type: 'icon', label: 'Icona (emoji, URL o immagine)', value: t.icon || '', placeholder: 'Es. 🎨 oppure https://…/icon.png' }];
@@ -672,7 +685,7 @@ function renderLinkSection(view, key, { addLabel, singular, tab }) {
       onSubmit: (v) => {
         if (!v.label || !v.url) return false;
         state[key].push(setOpenWith({ id: uid(), label: v.label, url: normalizeUrl(v.url), category: v.category || 'Altro', icon: v.icon || '',
-          ...(tab ? { tab } : {}) }, v.openWith));
+          ...(tab ? { tab } : {}) }, v.browser, v.chromeProfile));
         save(); render();
       } }) }, `+ ${addLabel}`)));
   const list = tab ? state[key].filter((t) => t.tab === tab) : state[key];
@@ -686,7 +699,7 @@ function renderLinkSection(view, key, { addLabel, singular, tab }) {
           onSubmit: (v) => {
             if (!v.label || !v.url) return false;
             t.label = v.label; t.url = normalizeUrl(v.url); t.category = v.category || 'Altro'; t.icon = v.icon || '';
-            setOpenWith(t, v.openWith); save(); render();
+            setOpenWith(t, v.browser, v.chromeProfile); save(); render();
           } }),
         onDelete: () => { state[key] = state[key].filter((x) => x.id !== t.id); save(); render(); },
         star: key === 'tools' && toolStar(t),
