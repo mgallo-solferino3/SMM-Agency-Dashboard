@@ -188,6 +188,7 @@ function openForm({ title, fields, submitLabel = 'Salva', onSubmit }) {
       const opts = f.options.map((o) => (typeof o === 'string' ? { value: o, label: o } : o));
       if (f.empty) opts.unshift({ value: '', label: '—' });
       input = h('select', null, opts.map((o) => h('option', { value: o.value, selected: o.value === f.value }, o.label)));
+      if (f.onChange) { const el = input; el.addEventListener('change', () => f.onChange(el)); }
     } else if (f.type === 'date' || f.type === 'number') {
       input = h('input', { type: f.type, value: f.value ?? '', step: f.type === 'number' ? 'any' : null });
     } else if (f.type === 'icon') {
@@ -654,12 +655,14 @@ const browserOf = (item) => browsers.find((b) => b.id === item.browser);
 // Scegliendo un account lo strumento si apre in Google Chrome con quell'account, qualunque sia il browser scelto.
 // Senza i menu (versione web) i valori sono undefined e la scelta fatta sul desktop resta com'è.
 function setOpenWith(t, browser, profile) {
+  if (profile === PICK_PROFILES) profile = undefined;
   if (browser !== undefined) t.browser = browser;
   if (profile !== undefined) t.chromeProfile = profile;
   if (t.chromeProfile) t.browser = 'chrome';
   return t;
 }
 
+const PICK_PROFILES = '__pick_chrome_profiles__';
 function toolFields(t = {}) {
   // Chrome si può scegliere anche se non è stato trovato fra le app, purché ci siano i suoi profili
   const browserOpts = browsers.some((b) => b.id === 'chrome') || !chromeProfiles.length
@@ -667,9 +670,25 @@ function toolFields(t = {}) {
   const browserField = browserOpts.length > 0 && { name: 'browser', type: 'select', label: 'Apri con il browser',
     value: t.chromeProfile ? 'chrome' : t.browser || '',
     options: [{ value: '', label: 'Browser predefinito' }, ...browserOpts.map((b) => ({ value: b.id, label: b.name }))] };
-  const profileField = chromeProfiles.length > 0 && { name: 'chromeProfile', type: 'select', label: 'Account Google (si apre in Google Chrome)',
-    value: t.chromeProfile || '',
-    options: [{ value: '', label: 'Nessuno (quello già aperto)' }, ...chromeProfiles.map((p) => ({ value: p.dir, label: profileLabel(p) }))] };
+  // Se macOS non lascia leggere i profili (lista vuota) il menu propone di cercarli scegliendo il file di Chrome
+  const profileOptions = (sel) => [{ value: '', label: 'Nessuno (quello già aperto)' },
+    ...chromeProfiles.map((p) => ({ value: p.dir, label: profileLabel(p) })),
+    // Account salvato ma non (ancora) nella lista: resta selezionabile
+    ...(sel && !chromeProfileOf({ chromeProfile: sel }) ? [{ value: sel, label: `Profilo "${sel}"` }] : []),
+    { value: PICK_PROFILES, label: chromeProfiles.length ? 'Aggiorna i profili di Chrome…' : 'Cerca i profili di Chrome…' }];
+  const profileField = !IS_WEB && (chromeProfiles.length > 0 || browserOpts.some((b) => b.id === 'chrome') || t.chromeProfile) && {
+    name: 'chromeProfile', type: 'select', label: 'Account Google (si apre in Google Chrome)',
+    value: t.chromeProfile || '', options: profileOptions(t.chromeProfile),
+    onChange: async (el) => {
+      if (el.value !== PICK_PROFILES) { el.dataset.prev = el.value; return; }
+      const prev = el.dataset.prev ?? (t.chromeProfile || '');
+      const found = await window.api.pickChromeProfiles();
+      if (found && found.length) chromeProfiles = found;
+      else if (found) toast('In quel file non ci sono profili di Chrome');
+      el.replaceChildren(...profileOptions(prev).map((o) => h('option', { value: o.value }, o.label)));
+      el.value = prev;
+      if (found && found.length) toast(`${found.length} profili di Chrome trovati`);
+    } };
   return [
     !IS_WEB && { name: 'app', type: 'app', label: `${APP_KIND} (facoltativo)`, value: isAppUrl(t.url) ? appUrlToPath(t.url) : '' },
     ...linkFields(t),

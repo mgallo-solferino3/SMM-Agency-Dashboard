@@ -27,14 +27,33 @@ const CHROME_EXE_WIN = () => [
   process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA,
 ].filter(Boolean).map((d) => path.join(d, 'Google', 'Chrome', 'Application', 'chrome.exe')).find((f) => fs.existsSync(f));
 
-// Profili di Chrome: { cartella: { name, user_name (email dell'account), … } }
+// Profili di Chrome: { cartella: { name, user_name (email dell'account) } }
+// Su macOS recenti l'app installata (firma ad-hoc) può non avere il permesso di leggere la cartella di Chrome
+// (EPERM, protezione dei dati delle altre app) e a ogni aggiornamento il permesso decade: per questo l'ultima
+// lista letta resta in copia nella cartella dati dell'app e si usa quando la lettura diretta non riesce.
+const CHROME_PROFILES_CACHE = () => path.join(app.getPath('userData'), 'chrome-profiles.json');
+function parseChromeProfiles(text) {
+  const cache = JSON.parse(text).profile?.info_cache || {};
+  return Object.fromEntries(Object.entries(cache).map(([dir, i]) => [dir, { name: String(i.name || dir), user_name: String(i.user_name || '') }]));
+}
+function cacheChromeProfiles(profiles) {
+  try {
+    const json = JSON.stringify(profiles);
+    const file = CHROME_PROFILES_CACHE();
+    if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== json) fs.writeFileSync(file, json);
+  } catch (_) { /* la copia è solo una scorta */ }
+}
 function readChromeProfiles() {
   try {
-    return JSON.parse(fs.readFileSync(CHROME_LOCAL_STATE, 'utf8')).profile?.info_cache || {};
+    const profiles = parseChromeProfiles(fs.readFileSync(CHROME_LOCAL_STATE, 'utf8'));
+    if (Object.keys(profiles).length) cacheChromeProfiles(profiles);
+    return profiles;
   } catch (_) {
-    return {};
+    try { return JSON.parse(fs.readFileSync(CHROME_PROFILES_CACHE(), 'utf8')) || {}; } catch (_) { return {}; }
   }
 }
+// Nome della cartella di un profilo Chrome ("Default", "Profile 4"…): niente percorsi
+const isChromeProfileDir = (d) => /^[\w .-]+$/.test(d) && !d.includes('..');
 
 function findChromeProfileDir(profileName) {
   for (const [dir, info] of Object.entries(readChromeProfiles())) {
@@ -379,7 +398,7 @@ function openExternalSafe(url, chromeProfile = '', browser = '') {
   try {
     const u = new URL(url);
     const isWeb = u.protocol === 'http:' || u.protocol === 'https:';
-    if (chromeProfile && isWeb && readChromeProfiles()[chromeProfile] && openInChromeProfile(chromeProfile, u.toString())) return true;
+    if (chromeProfile && isWeb && isChromeProfileDir(chromeProfile) && openInChromeProfile(chromeProfile, u.toString())) return true;
     if (browser && isWeb && openInBrowser(browser, u.toString())) return true;
     // Scorciatoia a un'app (file:///Applications/Nome.app o file:///C:/…/Nome.lnk)
     if (u.protocol === 'file:') {
@@ -436,9 +455,26 @@ ipcMain.handle('open:external', (_e, url, chromeProfile, browser) => openExterna
 ipcMain.handle('browsers:list', () => BROWSERS.filter((b) => browserPath(b)).map((b) => ({ id: b.id, name: b.name })));
 
 // Profili di Chrome per la scelta nel modulo degli strumenti, con l'email dell'account se c'è
-ipcMain.handle('chrome:profiles', () => Object.entries(readChromeProfiles())
+const chromeProfileList = (profiles) => Object.entries(profiles)
   .map(([dir, info]) => ({ dir, name: String(info.name || dir), email: String(info.user_name || '') }))
-  .sort((a, b) => a.name.localeCompare(b.name, 'it')));
+  .sort((a, b) => a.name.localeCompare(b.name, 'it'));
+ipcMain.handle('chrome:profiles', () => chromeProfileList(readChromeProfiles()));
+// Se macOS blocca la lettura: l'utente sceglie lui il file "Local State" di Chrome (scelto a mano, si può leggere)
+ipcMain.handle('chrome:pickProfiles', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    title: 'Scegli il file "Local State" di Google Chrome', buttonLabel: 'Usa questo file',
+    defaultPath: CHROME_LOCAL_STATE, properties: ['openFile', 'showHiddenFiles'],
+  });
+  if (canceled || !filePaths[0]) return null;
+  try {
+    const profiles = parseChromeProfiles(fs.readFileSync(filePaths[0], 'utf8'));
+    if (!Object.keys(profiles).length) return [];
+    cacheChromeProfiles(profiles);
+    return chromeProfileList(profiles);
+  } catch (_) {
+    return [];
+  }
+});
 
 // ---- Aspetto: tema chiaro/scuro, colori della barra del titolo, icona ----
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;

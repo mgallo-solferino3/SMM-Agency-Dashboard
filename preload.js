@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('api', {
   save: (data) => ipcRenderer.invoke('data:save', data),
   openExternal: (url, chromeProfile, browser) => ipcRenderer.invoke('open:external', url, chromeProfile, browser),
   chromeProfiles: () => ipcRenderer.invoke('chrome:profiles'),
+  pickChromeProfiles: () => ipcRenderer.invoke('chrome:pickProfiles'),
   browsers: () => ipcRenderer.invoke('browsers:list'),
   copy: (text) => ipcRenderer.invoke('clipboard:write', text),
   exportData: (data) => ipcRenderer.invoke('data:export', data),
