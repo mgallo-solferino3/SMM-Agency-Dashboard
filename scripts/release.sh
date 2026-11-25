@@ -69,9 +69,18 @@ cat > "$ASSETS/notes.md" <<EOF
 EOF
 
 echo "→ Creo la GitHub Release"
-gh release create "$TAG" --target main --title "$NAME $VERSION" \
-  --notes-file "$ASSETS/notes.md" --generate-notes \
-  "$ASSETS"/*.dmg "$ASSETS"/*.exe "$ASSETS/latest.json"
+# Prima come bozza (le app non la vedono), poi i file uno alla volta con tentativi ripetuti
+# (gli upload grandi a volte scadono: HTTP 408), infine la pubblicazione
+gh release create "$TAG" --draft --target main --title "$NAME $VERSION" \
+  --notes-file "$ASSETS/notes.md" --generate-notes
+for f in "$ASSETS"/*.dmg "$ASSETS"/*.exe "$ASSETS/latest.json"; do
+  for i in 1 2 3 4 5; do
+    gh release upload "$TAG" "$f" --clobber && break
+    [ "$i" = 5 ] && { echo "✗ Upload di $(basename "$f") fallito: la release $TAG resta in bozza"; exit 1; }
+    echo "  ritento l'upload di $(basename "$f") ($i)"; sleep 5
+  done
+done
+gh release edit "$TAG" --draft=false --latest
 
 echo "✓ Pubblicata: $(gh release view "$TAG" --json url -q .url)"
 

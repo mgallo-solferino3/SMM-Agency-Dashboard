@@ -650,13 +650,13 @@ const chromeProfileOf = (item) => chromeProfiles.find((p) => p.dir === item.chro
 let browsers = [];
 const browserOf = (item) => browsers.find((b) => b.id === item.browser);
 
-// Due menu: il browser con cui aprire lo strumento e, se è Google Chrome, l'account Google (profilo Chrome).
-// Il profilo vince sul browser (apre sempre Chrome con quell'account).
+// Due menu sempre visibili: il browser con cui aprire lo strumento e l'account Google (profilo Chrome).
+// Scegliendo un account lo strumento si apre in Google Chrome con quell'account, qualunque sia il browser scelto.
 // Senza i menu (versione web) i valori sono undefined e la scelta fatta sul desktop resta com'è.
 function setOpenWith(t, browser, profile) {
-  if (browser === undefined) return t;
-  t.browser = browser;
-  t.chromeProfile = browser === 'chrome' ? (profile || '') : '';
+  if (browser !== undefined) t.browser = browser;
+  if (profile !== undefined) t.chromeProfile = profile;
+  if (t.chromeProfile) t.browser = 'chrome';
   return t;
 }
 
@@ -667,14 +667,14 @@ function toolFields(t = {}) {
   const browserField = browserOpts.length > 0 && { name: 'browser', type: 'select', label: 'Apri con il browser',
     value: t.chromeProfile ? 'chrome' : t.browser || '',
     options: [{ value: '', label: 'Browser predefinito' }, ...browserOpts.map((b) => ({ value: b.id, label: b.name }))] };
-  const profileField = chromeProfiles.length > 0 && { name: 'chromeProfile', type: 'select', label: 'Account Google (profilo Chrome)',
-    value: t.chromeProfile || '', showIf: (v) => v.browser === 'chrome',
-    options: [{ value: '', label: 'Quello già aperto (predefinito)' }, ...chromeProfiles.map((p) => ({ value: p.dir, label: profileLabel(p) }))] };
+  const profileField = chromeProfiles.length > 0 && { name: 'chromeProfile', type: 'select', label: 'Account Google (si apre in Google Chrome)',
+    value: t.chromeProfile || '',
+    options: [{ value: '', label: 'Nessuno (quello già aperto)' }, ...chromeProfiles.map((p) => ({ value: p.dir, label: profileLabel(p) }))] };
   return [
     !IS_WEB && { name: 'app', type: 'app', label: `${APP_KIND} (facoltativo)`, value: isAppUrl(t.url) ? appUrlToPath(t.url) : '' },
     ...linkFields(t),
-    browserField,
     profileField,
+    browserField,
     { name: 'category', label: 'Categoria', value: t.category || '', placeholder: 'Es. Marketing' },
     { name: 'icon', type: 'icon', label: 'Icona (emoji, URL o immagine)', value: t.icon || '', placeholder: 'Es. 🎨 oppure https://…/icon.png' }];
 }
